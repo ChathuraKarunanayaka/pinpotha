@@ -3,7 +3,7 @@
 import { uid, today } from './util.js';
 import { seed } from './demo.js';
 
-export const TABLES = ['settings', 'events', 'members', 'donations', 'pledges', 'handovers', 'expenses', 'openings', 'transfers', 'families', 'teams', 'deliveries', 'parcelItems', 'tasks', 'messages'];
+export const TABLES = ['settings', 'events', 'members', 'donations', 'pledges', 'expenses', 'openings', 'transfers', 'families', 'teams', 'deliveries', 'parcelItems', 'tasks', 'messages'];
 
 /* ---- tiny IndexedDB key-value ---- */
 let idb;
@@ -19,6 +19,8 @@ async function kv(mode, fn) {
   return new Promise((res, rej) => { tx.oncomplete = () => res(out?.result); tx.onerror = tx.onabort = () => rej(tx.error); });
 }
 const get = k => kv('readonly', s => s.get(k));
+export const localGet = async k => { try { return await get(k); } catch { return undefined; } };
+export const localSet = async (k, v) => { try { await save({ [k]: v }); } catch (e) { console.error(e); } };
 const save = obj => kv('readwrite', s => { Object.entries(obj).forEach(([k, v]) => s.put(v, k)); });
 
 /* ---- state ---- */
@@ -47,6 +49,8 @@ export const byId = (t, id) => (S.db[t] || []).find(r => r.id === id);
 export const userName = id => id === 'BANK' ? 'බැංකු ගිණුම' : S.users.find(u => u.id === id)?.name || '—';
 export const memberName = id => byId('members', id)?.name || '—';
 export const activeUsers = () => S.users.filter(u => u.active);
+/** Who keeps the money once accounts are closed: chosen in Settings, else the first main member. */
+export const treasurerId = () => { const id = setting('treasurerId'), us = activeUsers(); return (us.find(u => u.id === id) || us.find(u => u.role === 'admin') || {}).id; };
 
 const blank = () => Object.fromEntries(TABLES.map(t => [t, {}]));
 function rebuild() {
@@ -102,6 +106,9 @@ export async function connect(conn) {
 async function wipe() {
   S.session = null; S.users = []; S.rev = 0; S.outbox = []; S.rejected = []; S.base = blank(); S.demoLog = [];
   rebuild();
+  // photos and report ticks belong to the person who is leaving
+  try { await kv('readwrite', s => { s.getAllKeys().onsuccess = e => e.target.result.filter(k => String(k).startsWith('photos-')).forEach(k => s.delete(k)); }); } catch { /* storage unavailable */ }
+  try { Object.keys(localStorage).filter(k => k.startsWith('rv-')).forEach(k => localStorage.removeItem(k)); } catch { /* storage unavailable */ }
 }
 export async function disconnect() {
   await wipe();
@@ -207,7 +214,7 @@ async function doSync() {
   rebuild();
   await persist('data', 'outbox', 'rejected', 'session');
   setStatus('idle');
-  emit('sync');
+  if (sent.length || Object.keys(r.changes).length) emit('sync');
 }
 function setStatus(s, err = '') { S.status = s; S.error = err; emit('status'); }
 

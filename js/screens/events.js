@@ -1,5 +1,5 @@
 // Events (poya and anniversary), parcel list, task plan with budget, and delivery.
-import { S, all, byId, put, remove, isAdmin } from '../store.js';
+import { S, all, treasurerId, userName, byId, put, remove, isAdmin } from '../store.js';
 import { html, rs, fmtDateLong, fmtDate, today, daysTo, inDays, uid, byName, waNumber } from '../util.js';
 import { FUNDS, fundLedger, eventStats, parcelTotals, plannedParcels, taskSpend, lastDelivered } from '../calc.js';
 import { icon, on, toast, formSheet, sheet, empty, stat, bar, confirmBox } from '../ui.js';
@@ -63,6 +63,7 @@ export function eventDetail({ id }) {
     ['collection', 'coins', 'එකතු වූ මුදල්', `${st.donors.size} දෙනෙක්`], ['expenses', 'bill', 'වියදම්', rs(st.spent)], ['pledges', 'gift', 'පොරොන්දු', ''],
     ['tasks', 'check', 'කාර්යයන් සහ අයවැය', tasksN.length ? `${tasksN.filter(t => t.status === 'done').length}/${tasksN.length} අවසන්` : ''],
     ['parcels', 'bag', 'මල්ලේ ලැයිස්තුව', plannedParcels(S.db, ev) ? `මලු ${plannedParcels(S.db, ev)}` : ''], ['delivery', 'truck', 'බෙදාහැරීම', dl.length ? `${dl.filter(d => d.status === 'done').length}/${dl.length}` : ''],
+    ['report', 'report', 'PDF වාර්තාව', ''], ['photos', 'camera', 'ඡායාරූප එකතුව', ''],
   ];
   return {
     title: 'පින්කම', back: 'events',
@@ -76,8 +77,8 @@ export function eventDetail({ id }) {
       on(el, 'click', '[data-edit]', () => eventForm(ev));
       on(el, 'click', '[data-close-ev]', async () => {
         const warn = [];
-        const pend = all('handovers').filter(h => h.status === 'pending').length;
-        if (pend) warn.push(`තහවුරු නොකළ මුදල් භාරදීම් ${pend}ක් ඇත.`);
+        const t = treasurerId(), held = Object.entries(eventStats(S.db, id).byCollector).filter(([u, v]) => u !== t && v > 0);
+        if (held.length) warn.push(`භාණ්ඩාගාරික (${userName(t)}) වෙත මුදල් ලැබී ඇතිදැයි බලන්න: ${held.map(([u, v]) => `${userName(u)} ${rs(v)}`).join(', ')}.`);
         const left = dl.filter(d => d.status === 'planned').length;
         if (left) warn.push(`තවම භාර නොදුන් පවුල් ${left}ක් ඇත.`);
         if (!(await confirmBox('ගිණුම් වසන්නද?', `${warn.join(' ')} වැසූ පසු මෙම පින්කමේ මුදල් වෙනස් කළ නොහැක. ඉතිරි ${rs(row.balance)} ඊළඟ පින්කමට යයි.`, { ok: 'වසන්න', cancel: 'තවම නැහැ' }))) return;

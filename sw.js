@@ -1,8 +1,8 @@
 // Offline support. Bump VERSION when publishing changes so phones fetch the new files.
-const VERSION = 'v1';
+const VERSION = 'v3';
 const SHELL = 'shell-' + VERSION, FONTS = 'fonts';
 const FILES = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
-  ...['main', 'store', 'util', 'calc', 'poya', 'ui', 'messages', 'card', 'demo', 'screens/auth', 'screens/home', 'screens/donate', 'screens/collection', 'screens/messages', 'screens/money', 'screens/people', 'screens/events', 'screens/more'].map(f => `js/${f}.js`)];
+  ...['main', 'store', 'util', 'calc', 'poya', 'ui', 'messages', 'card', 'art', 'share', 'pdf', 'report-pdf', 'collage', 'search', 'demo', 'screens/auth', 'screens/home', 'screens/donate', 'screens/collection', 'screens/messages', 'screens/money', 'screens/people', 'screens/events', 'screens/more', 'screens/report', 'screens/photos'].map(f => `js/${f}.js`)];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== SHELL && k !== FONTS).map(k => caches.delete(k)))).then(() => self.clients.claim())));

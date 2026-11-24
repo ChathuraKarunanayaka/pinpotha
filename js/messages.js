@@ -11,14 +11,14 @@ export const TEMPLATES = {
 
 මෙම පින්කමෙන් රැස්වන සියලු පින් ඔබටත් ඔබේ පවුලේ සැමටත් අත්වේවා! සාදු! සාදු! සාදු!
 
-— {සංසදය}`],
+— {සංවිධානය}`],
   thanksGoods: ['ස්තුති පණිවිඩය (භාණ්ඩ)', `තෙරුවන් සරණයි {නම},
 
 {පින්කම} වෙනුවෙන් ඔබ පරිත්‍යාග කළ {භාණ්ඩය} අප වෙත ලැබුණු බව ඉතා කෘතඥතාවෙන් දන්වා සිටිමු. 🙏
 
 මෙම පින්කමෙන් රැස්වන සියලු පින් ඔබටත් ඔබේ පවුලේ සැමටත් අත්වේවා! සාදු! සාදු! සාදු!
 
-— {සංසදය}`],
+— {සංවිධානය}`],
   remind: ['මතක් කිරීමේ පණිවිඩය', `තෙරුවන් සරණයි {නම},
 
 {දිනය} දිනට යෙදෙන {පින්කම} සඳහා {ඉතිරි}. 🌕
@@ -26,7 +26,7 @@ export const TEMPLATES = {
 අඩු ආදායම්ලාභී පවුල් සඳහා බඩු මලු පිරිනැමීමේ මෙම පින්කමට ඔබටත් කැමති පරිදි දායක විය හැකියි. සහභාගී වීමට කැමති නම් අප දැනුවත් කරන්න.
 
 පින් සිදු වේවා! 🙏
-— {සංසදය}`],
+— {සංවිධානය}`],
   remindGroup: ['Group එකට මතක් කිරීම', `🌕 *{පින්කම}* 🌕
 
 තෙරුවන් සරණයි සැමට,
@@ -34,35 +34,17 @@ export const TEMPLATES = {
 {එකතුකරන්නන්}
 
 පින් සිදු වේවා! 🙏
-— {සංසදය}`],
+— {සංවිධානය}`],
   pledge: ['පොරොන්දුව මතක් කිරීම', `තෙරුවන් සරණයි {නම},
 
 {පින්කම} වෙනුවෙන් ඔබ පොරොන්දු වූ රු. {මුදල} පිළිබඳව කාරුණිකව මතක් කරමු. ඔබට පහසු වෙලාවක ලබා දෙන්න.
 
 පින් සිදු වේවා! 🙏
-— {සංසදය}`],
-  behalfAsk: ['වෙනුවෙන් ගෙවූ බව (ඉල්ලූ අයට)', `තෙරුවන් සරණයි {නම},
-
-{පින්කම} වෙනුවෙන් ඔබ නමින් රු. {මුදල} ක මුදලක් {ගෙවූකෙනා} විසින් යොදවා ඇත. ඔබේ පරිත්‍යාගයට බොහොම පින්! 🙏
-
-කරුණාකර එම මුදල මතක් කර {ගෙවූකෙනා} වෙත ලබා දෙන්න.
-
-— {සංසදය}`],
-  behalfPay: ['වෙනුවෙන් ගෙවූ බව (ගෙවූ අයට)', `තෙරුවන් සරණයි {නම},
-
-{පින්කම} වෙනුවෙන් {ඉල්ලූකෙනා} නමින් ඔබ රු. {මුදල} ක මුදලක් යෙදවීම ගැන බොහොම පින්! 🙏
-
-කරුණාකර එම මුදල {ඉල්ලූකෙනා} වෙතින් ලබා ගන්න. ඔවුන්ටත් ඒ බව දන්වා ඇත.
-
-— {සංසදය}`],
-  behalfRemind: ['පියවීම මතක් කිරීම', `තෙරුවන් සරණයි {නම},
-
-{පින්කම} දිනයේ ඔබ නමින් {ගෙවූකෙනා} යෙදවූ රු. {මුදල} තවම පියවා නැති බව කාරුණිකව මතක් කරමු. ඔබට පහසු වෙලාවක {ගෙවූකෙනා} වෙත ලබා දෙන්න. 🙏
-
-— {සංසදය}`],
+— {සංවිධානය}`],
 };
 export const template = k => setting('tpl_' + k) || TEMPLATES[k][1];
-export const orgName = () => setting('orgName', 'අප මිත්‍ර සංසදය');
+export const ORG = 'දනට පින් ඇත්තෝ';
+export const orgName = () => setting('orgName', ORG);
 export const eventLabel = ev => !ev ? 'පින්කම' : ev.type === 'poya' ? `${ev.title} පින්කම` : ev.title;
 
 export function fill(tpl, vars) {
@@ -70,7 +52,7 @@ export function fill(tpl, vars) {
 }
 function vars(ev, extra) {
   const d = ev ? daysTo(ev.date) : 0;
-  return { පින්කම: eventLabel(ev), දිනය: fmtDate(ev?.date), ඉතිරි: d > 1 ? `තව දින ${d}යි` : d >= 0 ? inDays(d) : '', සංසදය: orgName(), ...extra };
+  return { පින්කම: eventLabel(ev), දිනය: fmtDate(ev?.date), ඉතිරි: d > 1 ? `තව දින ${d}යි` : d >= 0 ? inDays(d) : '', සංවිධානය: orgName(), ...extra };
 }
 
 /** Build the text for one message to one member. */
@@ -82,8 +64,6 @@ export function compose(kind, { eventId, memberId, donation, amount }) {
     නම: memberName(memberId),
     මුදල: money(amount ?? d.amount),
     භාණ්ඩය: d.goods || '',
-    ගෙවූකෙනා: d.payerId ? memberName(d.payerId) : '',
-    ඉල්ලූකෙනා: d.memberId ? memberName(d.memberId) : '',
   }));
 }
 
@@ -94,11 +74,9 @@ export const wasSent = (kind, refId, memberId) => { const m = byId('messages', m
 export const markSent = (kind, refId, memberId, eventId) => put('messages', msgId(kind, refId, memberId), { kind, refId, memberId, eventId, at: new Date().toISOString(), deleted: false });
 export const unmarkSent = (kind, refId, memberId) => put('messages', msgId(kind, refId, memberId), { deleted: true });
 
-/** All thank-you style messages a donation still needs. */
+/** The thank-you message a donation still needs, if any. */
 export function pendingFor(d) {
-  if (d.deleted) return [];
-  const want = d.payerId ? [['behalfAsk', d.memberId], ['behalfPay', d.payerId]] : [['thanks', d.memberId]];
-  return want.filter(([k, m]) => !wasSent(k, d.id, m)).map(([kind, memberId]) => ({ kind, memberId, donation: d, eventId: d.eventId }));
+  return d.deleted || wasSent('thanks', d.id, d.memberId) ? [] : [{ kind: 'thanks', memberId: d.memberId, donation: d, eventId: d.eventId }];
 }
 
 /* ---- sending ---- */

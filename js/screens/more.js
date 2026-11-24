@@ -1,18 +1,18 @@
 // Menu, yearly report, change history, settings, committee accounts and help.
-import { S, all, me, byId, put, isAdmin, isDemo, api, setting, setUsers, setToken, logout, disconnect, memberName, userName, sync } from '../store.js';
+import { S, all, me, treasurerId, activeUsers, byId, put, isAdmin, isDemo, api, setting, setUsers, setToken, logout, disconnect, memberName, userName, sync } from '../store.js';
 import { html, rs, fmtStamp, fmtDate } from '../util.js';
 import { FUNDS, fundLedger, fundBalance } from '../calc.js';
 import { icon, on, toast, formSheet, confirmBox, empty, stat, sheet } from '../ui.js';
-import { TEMPLATES, template, copyText } from '../messages.js';
-import { drawCard } from '../card.js';
+import { TEMPLATES, template, copyText, orgName } from '../messages.js';
+import { drawCard, CARD_TEXT, CARD_VERSE } from '../card.js';
 import { render } from '../main.js';
 
 export function more() {
   const groups = [
-    ['මුදල්', [['cash', 'hand', 'මුදල් භාරදීම'], ['expenses', 'bill', 'වියදම්'], ['pledges', 'gift', 'පොරොන්දු'], ['behalf', 'swap', 'වෙනුවෙන් ගෙවීම්']]],
+    ['මුදල්', [['cash', 'cash', 'අත ඇති මුදල්'], ['expenses', 'bill', 'වියදම්'], ['pledges', 'gift', 'පොරොන්දු']]],
     ['පින්කම', [['events', 'calendar', 'පින්කම්'], ['tasks', 'check', 'කාර්යයන්'], ['parcels', 'bag', 'මල්ලේ ලැයිස්තුව'], ['delivery', 'truck', 'බෙදාහැරීම']]],
     ['අය', [['members', 'people', 'සාමාජිකයන්'], ['families', 'house', 'පවුල්']]],
-    ['වෙනත්', [['reports', 'report', 'වාර්තා'], ['history', 'clock', 'ඉතිහාසය'], ...(isAdmin() ? [['users', 'lock', 'කමිටුව']] : []), ['settings', 'gear', 'සැකසුම්'], ['help', 'help', 'උදව්']]],
+    ['වෙනත්', [['report', 'report', 'PDF වාර්තාව'], ['photos', 'camera', 'ඡායාරූප'], ['reports', 'sheet', 'ගිණුම් වාර්තා'], ['history', 'clock', 'ඉතිහාසය'], ...(isAdmin() ? [['users', 'lock', 'කමිටුව']] : []), ['settings', 'gear', 'සැකසුම්'], ['help', 'help', 'උදව්']]],
   ];
   return {
     title: 'තවත්',
@@ -29,7 +29,7 @@ export function reports() {
   const years = {};
   led.forEach(r => { const y = r.event.date.slice(0, 4); (years[y] ||= { income: 0, spent: 0 }); years[y].income += r.income; years[y].spent += r.spent; });
   return {
-    title: 'වාර්තා', back: 'more',
+    title: 'ගිණුම් වාර්තා', back: 'more',
     body: html`<div class="seg">${Object.entries(FUNDS).map(([k, l]) => html`<button type="button" data-f="${k}" class="${fund === k ? 'on' : ''}">${l}</button>`)}</div>
       <div class="stats">${stat('දැනට අරමුදලේ', fundBalance(S.db, fund), 'bal')}${Object.entries(years).reverse().slice(0, 1).map(([y, v]) => stat(`${y} එකතුව`, v.income, 'in'))}</div>
       ${led.length ? led.map(r => html`<a class="card replink" href="#/event?id=${r.event.id}"><div class="top"><b>${r.event.title}</b><small>${fmtDate(r.event.date)} ${r.event.date.slice(0, 4)}</small></div><table class="ledger"><tr><td>පෙර ශේෂය</td><td>${rs(r.brought)}</td></tr>${r.transfer ? html`<tr><td>අරමුදල් මාරු</td><td>${rs(r.transfer)}</td></tr>` : ''}<tr><td>+ එකතුව</td><td>${rs(r.income)}</td></tr><tr><td>− වියදම</td><td>${rs(r.spent)}</td></tr><tr class="sum"><td>ඉතිරිය</td><td>${rs(r.balance)}</td></tr></table></a>`) : empty('report', 'තවම පින්කම් නැහැ.')}
@@ -38,8 +38,8 @@ export function reports() {
       on(el, 'click', '[data-f]', b => { fund = b.dataset.f; render({ keepScroll: true }); });
       on(el, 'click', '[data-csv]', () => {
         const KIND = { cash: 'මුදල්', bank: 'බැංකුවට', goods: 'භාණ්ඩ' };
-        const rows = [['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල', 'භාණ්ඩය', 'එකතු කළේ', 'වෙනුවෙන් ගෙව්වේ', 'සටහන'],
-          ...all('donations').sort((a, b) => a.date.localeCompare(b.date)).map(d => [d.date, byId('events', d.eventId)?.title, memberName(d.memberId), KIND[d.kind], d.amount, d.goods, userName(d.collectorId), d.payerId ? memberName(d.payerId) : '', d.note])];
+        const rows = [['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල', 'භාණ්ඩය', 'එකතු කළේ', 'සටහන'],
+          ...all('donations').sort((a, b) => a.date.localeCompare(b.date)).map(d => [d.date, byId('events', d.eventId)?.title, memberName(d.memberId), KIND[d.kind], d.amount, d.goods, userName(d.collectorId), d.note])];
         download('pinpotha.csv', '﻿' + rows.map(r => r.map(csv).join(',')).join('\r\n'), 'text/csv');
       });
     },
@@ -100,8 +100,8 @@ export function settings() {
     body: html`
       <h2 class="sec">මෙම දුරකථනය</h2>
       <div class="card"><div class="lab">අකුරු ප්‍රමාණය</div><div class="seg">${[['0', 'කුඩා'], ['1', 'සාමාන්‍ය'], ['2', 'විශාල']].map(([v, l]) => html`<button type="button" data-size="${v}" class="${size === v ? 'on' : ''}">${l}</button>`)}</div></div>
-      ${A ? html`<h2 class="sec">සංසදය</h2><div class="list card0">
-        <button type="button" class="row" data-org>${icon('lotus', 'lead-i')}<span class="grow"><b>${setting('orgName', 'අප මිත්‍ර සංසදය')}</b><small>නම, බැංකු විස්තර, මතක් කිරීමේ දින, ස්තුති පත</small></span>${icon('next')}</button></div>
+      ${A ? html`<h2 class="sec">සංවිධානය</h2><div class="list card0">
+        <button type="button" class="row" data-org>${icon('lotus', 'lead-i')}<span class="grow"><b>${orgName()}</b><small>නම, බැංකු විස්තර, මතක් කිරීමේ දින, ස්තුති පත</small></span>${icon('next')}</button></div>
         <h2 class="sec">පණිවිඩ වචන</h2><div class="list card0">${Object.entries(TEMPLATES).map(([k, [l]]) => html`<button type="button" class="row" data-tpl="${k}">${icon('chat', 'lead-i')}<span class="grow"><b>${l}</b>${setting('tpl_' + k) ? html`<small>වෙනස් කර ඇත</small>` : ''}</span>${icon('next')}</button>`)}</div>
         <button type="button" class="btn ghost" data-card>${icon('lotus')} ස්තුති පත බලන්න</button>
         ${isDemo() ? '' : html`<button type="button" class="btn ghost" data-invite>${icon('share')} කමිටුවට ආරාධනා link එක</button>`}` : ''}
@@ -110,8 +110,8 @@ export function settings() {
     mount(el) {
       on(el, 'click', '[data-size]', b => { document.documentElement.dataset.size = b.dataset.size; try { localStorage.setItem('size', b.dataset.size); } catch { /* private window */ } render({ keepScroll: true }); });
       on(el, 'click', '[data-org]', () => formSheet({
-        title: 'සංසදය', value: { orgName: setting('orgName', 'අප මිත්‍ර සංසදය'), bankDetails: setting('bankDetails'), remindDays: setting('remindDays', '4'), cardAmount: setting('cardAmount', '1') === '1', notifyEmails: setting('notifyEmails') },
-        fields: [{ key: 'orgName', label: 'සංසදයේ නම', required: true }, { key: 'bankDetails', label: 'බැංකු ගිණුම් විස්තර', type: 'textarea', hint: 'Group මතක් කිරීමේ පණිවිඩයට එක් වේ.' }, { key: 'remindDays', label: 'මතක් කිරීම් දින කීයකට පෙරද?', type: 'number', required: true }, { key: 'cardAmount', label: 'ස්තුති පතේ මුදල පෙන්වන්න', type: 'toggle' }, { key: 'notifyEmails', label: 'කමිටුවට ඊමේල් මතක් කිරීම්', hint: 'ඊමේල් ලිපින, කොමාවෙන් වෙන් කර. පොහොයට දින 4කට පෙර ඉබේම යයි.' }],
+        title: 'සංවිධානය', value: { orgName: orgName(), bankDetails: setting('bankDetails'), remindDays: setting('remindDays', '4'), cardAmount: setting('cardAmount', '1') === '1', notifyEmails: setting('notifyEmails'), cardText: setting('cardText', CARD_TEXT), cardVerse: setting('cardVerse', CARD_VERSE), treasurerId: treasurerId() },
+        fields: [{ key: 'orgName', label: 'සංවිධානයේ නම', required: true }, { key: 'treasurerId', label: 'භාණ්ඩාගාරික (ඉතිරි මුදල් තබා ගන්නා අය)', type: 'select', required: true, options: activeUsers().map(u => [u.id, u.name]) }, { key: 'bankDetails', label: 'බැංකු ගිණුම් විස්තර', type: 'textarea', hint: 'Group මතක් කිරීමේ පණිවිඩයට එක් වේ.' }, { key: 'remindDays', label: 'මතක් කිරීම් දින කීයකට පෙරද?', type: 'number', required: true }, { key: 'cardAmount', label: 'ස්තුති පතේ මුදල පෙන්වන්න', type: 'toggle' }, { key: 'cardText', label: 'ස්තුති පතේ පින් අනුමෝදනාව', type: 'textarea', rows: 4, required: true }, { key: 'cardVerse', label: 'ස්තුති පතේ දහම් වදන', required: true }, { key: 'notifyEmails', label: 'කමිටුවට ඊමේල් මතක් කිරීම්', hint: 'ඊමේල් ලිපින, කොමාවෙන් වෙන් කර. පොහොයට දින 4කට පෙර ඉබේම යයි.' }],
         onSave: async v => { for (const [k, x] of Object.entries(v)) { const s = k === 'cardAmount' ? (x ? '1' : '0') : String(x); if (s !== setting(k, k === 'cardAmount' ? '1' : '')) await put('settings', k, { value: s }); } toast('සුරැකුණා'); },
       }));
       on(el, 'click', '[data-tpl]', b => {
@@ -170,7 +170,7 @@ export function users() {
     title: 'කමිටුව', back: 'more',
     body: html`<button type="button" class="btn primary huge" data-add>${icon('plus')} අයෙක් එක් කරන්න</button>
       <div class="list card0">${S.users.map(u => html`<button type="button" class="row ${u.active ? '' : 'dim'}" data-u="${u.id}"><span class="ava">${[...u.name][0]}</span><span class="grow"><b>${u.name}</b><small>${u.role === 'admin' ? 'ප්‍රධාන' : 'මුදල් එකතු කරන්නා'}${u.active ? '' : ' · අක්‍රිය'}</small></span>${icon('next')}</button>`)}</div>
-      <section class="card note"><b>ප්‍රධාන</b>: වියදම්, පින්කම්, පවුල් අනුමත කිරීම, ගිණුම් වැසීම සියල්ල.<br><b>මුදල් එකතු කරන්නා</b>: තමන් එකතු කළ මුදල් සටහන් කිරීම, පණිවිඩ, මුදල් භාරදීම, පවුල් යෝජනා කිරීම, බෙදාහැරීම සලකුණු කිරීම.</section>`,
+      <section class="card note"><b>ප්‍රධාන</b>: වියදම්, පින්කම්, පවුල් අනුමත කිරීම, ගිණුම් වැසීම සියල්ල.<br><b>මුදල් එකතු කරන්නා</b>: තමන් එකතු කළ මුදල් සටහන් කිරීම, පණිවිඩ, පවුල් යෝජනා කිරීම, බෙදාහැරීම සලකුණු කිරීම.</section>`,
     mount(el) {
       on(el, 'click', '[data-add]', () => edit());
       on(el, 'click', '[data-u]', b => edit(S.users.find(u => u.id === b.dataset.u)));
@@ -183,11 +183,13 @@ export function help() {
   const QA = [
     ['මුදලක් ලැබුණු විට', 'පහළ මැද ඇති ලොකු + බොත්තම ඔබන්න → නම තෝරන්න → මුදල ඔබන්න → සුරකින්න. ඉන්පසු WhatsApp බොත්තම ඔබා ස්තුති පණිවිඩය යවන්න.'],
     ['ස්තුති පත (පින්තූරය) යවන්නේ කෙසේද?', 'පළමුව ස්තුති පණිවිඩය යවන්න. එවිට ඒ අය WhatsApp හි මුලින්ම පෙනේ. ඉන්පසු "ස්තුති පත" → "පින්තූරය යවන්න" → WhatsApp → ඒ අය තෝරන්න.'],
-    ['කෙනෙක් වෙනුවෙන් තව කෙනෙක් ගෙව්වොත්', 'නම ලෙස මුදල අයිති කෙනා (ඉල්ලූ අය) තෝරන්න. පසුව "වෙන කෙනෙක් වෙනුවෙන් ගෙව්වා" සක්‍රිය කර, මුදල් දුන් අය තෝරන්න. දෙදෙනාටම වෙන වෙනම පණිවිඩ යැවීමට බොත්තම් දෙකක් ලැබේ.'],
     ['අන්තර්ජාලය නැති විට', 'කිසි ගැටලුවක් නැහැ. සටහන් දුරකථනයේ සුරැකේ. අන්තර්ජාලය ලැබුණු විට app එක විවෘත කළ විට ඉබේම Sheet එකට යයි. ඉහළ දකුණේ "සුරැකුණා" පෙනේ නම් සියල්ල ගොස් ඇත.'],
     ['වැරදීමක් වුණොත්', '"එකතුව" → අදාළ අය → "වෙනස් කරන්න" හෝ "මකන්න". මැකූ දේ "තවත් → ඉතිහාසය" තුළින් ආපසු ගත හැක.'],
-    ['එකතු කළ මුදල් භාර දීම', '"තවත් → මුදල් භාරදීම → භාර දෙන්න". ලබන කෙනා "මුදල ලැබුණා" ඔබන තුරු එය ඔබ අත ඇති ලෙස පෙනේ.'],
+    ['කා ළඟ කීයක් තියෙනවාද?', 'මුල් පිටුවේ සහ "තවත් → අත ඇති මුදල්" තුළ හැමෝටම පෙනේ. මුදලක් සටහන් කළ විට එකතු කළ අයගේ ගණනට එකතු වේ; වියදමක් සටහන් කළ විට ගෙවූ අයගෙන් අඩු වේ. වෙනත් කිසිවක් කළ යුතු නැහැ.'],
+    ['සිංහලෙන් type කරන්න අමාරු නම්', 'නම English අකුරෙන් ගසන්න. උදා: Anula හෝ perera ගැසූ විට අනුලා, පෙරේරා ලැබේ.'],
     ['පොහොයට පෙර මතක් කිරීම්', 'දින 4කට පෙර සිට මුල් පිටුවේ පෙනේ. "පණිවිඩ → මතක් කිරීම්" ගොස් එකින් එක යවන්න. දැනටමත් මුදල් දුන් අය ලැයිස්තුවේ නැහැ.'],
+    ['මාසික PDF එක group එකට', '"තවත් → PDF වාර්තාව". එක් එක් නම, ගම සහ මුදල බලා ✓ කරන්න. වැරදි නම් ඒ මත ඔබා වෙනස් කරන්න හෝ මකන්න. සියල්ල ✓ වූ පසු "PDF සාදන්න" → බලා → "WhatsApp group එකට යවන්න".'],
+    ['ඡායාරූප එකතුවක් (collage)', '"තවත් → ඡායාරූප" → Camera හෝ Gallery. හොඳ ඒවා තෝරන්න → මෝස්තරය සහ වර්ණය තෝරන්න → යවන්න. ඡායාරූප දුරකථනයෙන් පිටතට යන්නේ ඔබ යැවූ විට පමණි.'],
     ['දුරකථනයේ app එකක් ලෙස දැමීම', 'Android: Chrome ⋮ → "Add to Home screen". iPhone: Safari Share → "Add to Home Screen", පසුව ආරාධනා link එක එහි paste කරන්න.'],
   ];
   return { title: 'උදව්', back: 'more', body: html`${QA.map(([q, a], i) => html`<details class="qa" ${i ? '' : 'open'}><summary>${q}</summary><p>${a}</p></details>`)}` };

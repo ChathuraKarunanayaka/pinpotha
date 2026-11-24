@@ -1,10 +1,10 @@
 import { S, connect, parseInvite, api, login, disconnect } from '../store.js';
-import { html } from '../util.js';
+import { html, raw } from '../util.js';
 import { icon, on, confirmBox } from '../ui.js';
-import { moonSvg } from '../poya.js';
-import { raw } from '../util.js';
+import { boMoonSvg } from '../art.js';
+import { ORG } from '../messages.js';
 
-const hero = sub => html`<div class="hero-auth">${raw(moonSvg(0))}<h1>පින් පොත</h1><p>${sub}</p></div>`;
+const hero = sub => html`<div class="hero-auth">${raw(boMoonSvg(0))}<h1>${ORG}</h1><p>${sub}</p></div>`;
 
 export function connectScreen() {
   return {

@@ -38,16 +38,20 @@ export function fundBalance(db, fund) {
     - sum(live(db.transfers).filter(t => t.fromFund === fund), t => t.amount)) / 100;
 }
 
-/** Cash each person (or the bank) should be holding. Unconfirmed handovers stay with the giver. */
-export function holdings(db, userIds) {
+/**
+ * Cash each person (or the bank) is holding, worked out from what they collected and paid.
+ * Open events: money stays with whoever collected it. Once an event's accounts are closed the
+ * rest is taken to be with the treasurer, so nobody has to record passing money on.
+ */
+export function holdings(db, userIds, treasurerId) {
   const h = {};
   [...userIds, BANK].forEach(id => { h[id] = 0; });
   const add = (id, c) => { h[id] = (h[id] || 0) + c; };
-  const evs = new Set(live(db.events).map(e => e.id));
-  live(db.openings).forEach(o => add(o.holder, cents(o.amount)));
-  live(db.donations).filter(d => isMoney(d) && evs.has(d.eventId)).forEach(d => add(d.kind === 'bank' ? BANK : d.collectorId, cents(d.amount)));
-  live(db.expenses).filter(x => evs.has(x.eventId)).forEach(x => add(x.paidBy, -cents(x.amount)));
-  live(db.handovers).filter(v => v.status === 'confirmed').forEach(v => { add(v.fromId, -cents(v.amount)); add(v.toId, cents(v.amount)); });
+  const evs = Object.fromEntries(live(db.events).map(e => [e.id, e]));
+  const at = (id, ev) => (id !== BANK && treasurerId && (!ev || ev.status === 'closed') ? treasurerId : id);
+  live(db.openings).forEach(o => add(at(o.holder), cents(o.amount)));
+  live(db.donations).filter(d => isMoney(d) && evs[d.eventId]).forEach(d => add(d.kind === 'bank' ? BANK : at(d.collectorId, evs[d.eventId]), cents(d.amount)));
+  live(db.expenses).filter(x => evs[x.eventId]).forEach(x => add(at(x.paidBy, evs[x.eventId]), -cents(x.amount)));
   Object.keys(h).forEach(k => { h[k] /= 100; });
   return h;
 }
@@ -82,9 +86,6 @@ export function pledgeStatus(db, eventId) {
     return { pledge: p, given: used / 100, due: (cents(p.amount) - used) / 100 };
   });
 }
-
-/** Donations someone else paid for and has not been paid back. */
-export const openDebts = db => live(db.donations).filter(d => d.payerId && !d.settled && isMoney(d));
 
 export function parcelTotals(db, eventId, parcels) {
   const items = live(db.parcelItems).filter(i => i.eventId === eventId).sort((a, b) => (a.sort || 0) - (b.sort || 0));
@@ -127,4 +128,39 @@ export function currentEvent(db, today) {
   const open = live(db.events).filter(e => e.status !== 'closed').sort(byDateAsc);
   const next = open.filter(e => e.date >= grace);
   return next.find(e => e.type === 'poya') || next[0] || open[open.length - 1] || null;
+}
+
+/* ---------------- checking names and amounts before a report goes out ---------------- */
+const tidy = s => String(s || '').toLowerCase().replace(/[\s.\u200c\u200d]+/g, '');
+
+/** Donations of an event with the facts printed in the report, oldest first. */
+export function reportRows(db, eventId) {
+  const mem = Object.fromEntries((db.members || []).map(m => [m.id, m]));
+  return live(db.donations).filter(d => d.eventId === eventId).map(d => ({ d, m: mem[d.memberId] || { name: '', area: '' } }))
+    .sort((a, b) => String(a.m.name).localeCompare(String(b.m.name), 'si') || byDateAsc(a.d, b.d));
+}
+/** { donationId: [problem, ...] } — things a person should look at before the names are published. */
+export function reviewIssues(rows) {
+  const out = {}, add = (r, t) => { (out[r.d.id] ||= []).push(t); };
+  const perMember = {}, perName = {};
+  rows.forEach(r => { (perMember[r.d.memberId] ||= []).push(r); (perName[tidy(r.m.name)] ||= new Set()).add(r.d.memberId); });
+  const amounts = rows.filter(r => isMoney(r.d)).map(r => Number(r.d.amount)).sort((a, b) => a - b);
+  const mid = amounts.length ? amounts[Math.floor(amounts.length / 2)] : 0;
+  rows.forEach(r => {
+    if (!String(r.m.name).trim()) add(r, 'නම නැත');
+    if (!String(r.m.area || '').trim()) add(r, 'ගම සඳහන් නැත');
+    if (/[0-9]/.test(r.m.name)) add(r, 'නමේ ඉලක්කම් ඇත');
+    if (perMember[r.d.memberId].filter(x => isMoney(x.d) === isMoney(r.d)).length > 1) add(r, 'මෙම අයගේ සටහන් එකකට වඩා ඇත');
+    if (perName[tidy(r.m.name)].size > 1) add(r, 'එකම නමින් දෙදෙනෙක් ඇත');
+    if (isMoney(r.d) && amounts.length >= 5 && Number(r.d.amount) >= mid * 20) add(r, 'මුදල ඉතා වැඩියි — බිංදු ගණන බලන්න');
+    if (isMoney(r.d) && Number(r.d.amount) < 20) add(r, 'මුදල ඉතා අඩුයි');
+  });
+  return out;
+}
+/** Changes whenever any printed fact changes, so an edited line must be checked again. */
+export function rowSignature({ d, m }) {
+  const s = [m.name, m.area, m.anon ? 1 : 0, d.kind, d.amount, d.goods, d.collectorId].join('|');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
 }

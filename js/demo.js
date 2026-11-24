@@ -19,12 +19,12 @@ export function seed(day) {
   // 070 000 00xx: deliberately not real numbers
   const members = NAMES.map((name, i) => ({ id: `demo-m${i}`, name, phone: i === 9 ? '' : `07000000${String(i).padStart(2, '0')}`, area: AREAS[i % 4], usual: i % 4 === 0 ? 1000 : '', collectorId: U[i % 3], noRemind: false, anon: i === 5, inactive: false, note: '' }));
   const amt = [1000, 500, 2000, 1500, 1000, 5000, 500, 1000];
-  const don = (id, eventId, i, date, p = {}) => ({ id, eventId, memberId: `demo-m${i}`, kind: 'cash', amount: amt[i % 8], goods: '', collectorId: U[i % 3], payerId: '', settled: false, settledAt: '', date, note: '', ...p });
+  const don = (id, eventId, i, date, p = {}) => ({ id, eventId, memberId: `demo-m${i}`, kind: 'cash', amount: amt[i % 8], goods: '', collectorId: U[i % 3], date, note: '', ...p });
   const donations = [
     ...members.slice(0, 22).map((_, i) => don(`demo-o${i}`, old.id, i, shift(-25))),
     ...[0, 1, 3, 4, 6].map(i => don(`demo-c${i}`, cur.id, i, day)),
     don('demo-c7', cur.id, 7, day, { kind: 'bank', amount: 2500 }),
-    don('demo-c8', cur.id, 8, day, { amount: 1000, payerId: 'demo-m4' }),
+    don('demo-c8', cur.id, 8, day, { amount: 1000 }),
     don('demo-c10', cur.id, 10, day, { kind: 'goods', amount: '', goods: 'හාල් කිලෝ 25' }),
     don('demo-a0', ann.id, 2, day, { amount: 10000 }),
     don('demo-a1', ann.id, 5, day, { amount: 5000 }),
@@ -34,12 +34,11 @@ export function seed(day) {
   return {
     users,
     tables: {
-      settings: [{ id: 'orgName', value: 'අප මිත්‍ර සංසදය' }],
+      settings: [],
       events: [old, cur, ann],
       members, donations, families,
       openings: [{ id: 'demo-op', fund: 'poya', holder: U[0], amount: 8400, date: shift(-60), note: 'පොතේ ඉතිරිය' }],
       pledges: [{ id: 'demo-p1', eventId: cur.id, memberId: 'demo-m2', amount: 2000, cancelled: false, note: '' }, { id: 'demo-p2', eventId: cur.id, memberId: 'demo-m5', amount: 5000, cancelled: false, note: '' }],
-      handovers: [{ id: 'demo-h1', fromId: U[1], toId: U[0], amount: 9000, date: shift(-24), status: 'confirmed', note: '' }, { id: 'demo-h2', fromId: U[2], toId: U[0], amount: 2000, date: day, status: 'pending', note: '' }],
       expenses: [
         { id: 'demo-e1', eventId: old.id, taskId: '', category: 'බඩු', title: 'මලු 20ක් සඳහා වියළි ආහාර', amount: 24500, paidBy: U[0], shop: 'නගරයේ කඩය', billNo: '1042', date: shift(-25), note: '' },
         { id: 'demo-e2', eventId: ann.id, taskId: 'demo-t1', category: 'සැරසිලි', title: 'කොඩි සහ මල්', amount: 3500, paidBy: U[0], shop: '', billNo: '', date: day, note: '' },
