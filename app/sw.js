@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION when publishing changes so phones fetch the new files.
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = 'shell-' + VERSION, FONTS = 'fonts';
 const FILES = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
   ...['main', 'store', 'util', 'calc', 'poya', 'ui', 'messages', 'card', 'art', 'share', 'pdf', 'report-pdf', 'collage', 'search', 'demo', 'screens/auth', 'screens/home', 'screens/donate', 'screens/collection', 'screens/messages', 'screens/money', 'screens/people', 'screens/events', 'screens/more', 'screens/report', 'screens/photos'].map(f => `js/${f}.js`)];

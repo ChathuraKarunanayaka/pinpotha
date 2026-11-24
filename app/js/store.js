@@ -109,7 +109,7 @@ export async function join(inv, name, pin) {
   S.conn = { id: inv.id, key: r.key, userId: r.user.id };
   S.session = { token: r.token, user: r.user, sheetUrl: r.sheetUrl };
   await persist('conn', 'session', 'data', 'outbox', 'rejected');
-  await sync();
+  if (r.sync) await absorb(r.sync, []); else await sync();
 }
 export async function connect(conn) {
   const other = S.conn && (S.conn.id !== conn.id);
@@ -157,13 +157,13 @@ async function post(id, body) {
   return res;
 }
 export async function login(userId, pin) {
-  const r = await api('login', { userId, pin });
+  const r = await api('login', { userId, pin, since: S.rev });
   // Unsent notes belong to the person who wrote them.
   if (S.session && S.session.user.id !== r.user.id && S.outbox.length) throw new Error(`${S.session.user.name}ගේ නොයැවූ සටහන් ඇත. පළමුව ඔවුන් ඇතුළු විය යුතුයි.`);
   S.session = { token: r.token, user: r.user, sheetUrl: r.sheetUrl };
-  await persist('session');
+  if (r.sync) await absorb(r.sync, []); else await persist('session');
   emit('session');
-  await sync();
+  if (!r.sync || S.outbox.length) await sync();
 }
 export async function logout() {
   const { conn } = S;
@@ -174,6 +174,18 @@ export async function logout() {
 }
 
 /* ---- writing ---- */
+let batching = false;
+/** Many puts, one save and one redraw. */
+export async function batch(work) {
+  batching = true;
+  try { await work(); } finally {
+    batching = false;
+    rebuild();
+    await persist(isDemo() ? 'data' : 'outbox');
+    if (!isDemo()) syncSoon();
+    emit('data');
+  }
+}
 /** Create or change one record. Saved on the phone before this resolves. */
 export async function put(table, id, patch) {
   id = id || uid();
@@ -181,10 +193,12 @@ export async function put(table, id, patch) {
     const before = S.base[table][id];
     (S.demoLog ||= []).unshift({ at: new Date().toISOString(), userId: me().id, userName: me().name, table, recId: id, action: !before ? 'create' : patch.deleted === true ? 'delete' : patch.deleted === false ? 'restore' : 'update', before: before ? Object.fromEntries(Object.keys(patch).map(k => [k, before[k]])) : {}, after: patch });
     S.base[table][id] = { deleted: false, ...before, ...patch, id };
+    if (batching) return id;
     rebuild();
     await persist('data');
   } else {
     S.outbox.push({ opId: uid(), table, id, patch, at: Date.now() });
+    if (batching) return id;
     rebuild();
     await persist('outbox');
     syncSoon();
@@ -217,6 +231,10 @@ async function doSync() {
     syncSoon(30000);
     return;
   }
+  await absorb(r, sent);
+}
+/** Take in a server answer. */
+async function absorb(r, sent) {
   const done = new Set(), refused = new Set();
   r.results.forEach(x => {
     done.add(x.opId);

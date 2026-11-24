@@ -58,10 +58,16 @@ function handle_(req) {
   const invited = req.action === 'inviteInfo' || req.action === 'join';
   if (!invited && !safeEq_(String(req.key || ''), key)) fail_('key', 'ආරාධනා link එක වලංගු නැත. ප්‍රධාන අයගෙන් අලුත් link එකක් ගන්න.');
 
+  if (req.action === 'sync' && !(req.ops && req.ops.length)) {
+    const quick = quickSync_(req);
+    if (quick) return quick;
+  }
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) fail_('busy', 'පද්ධතිය කාර්යබහුලයි. මොහොතකින් නැවත උත්සාහ කරන්න.');
+  let db;
   try {
-    const db = new Db_();
+    db = new Db_();
+    db.locked = true;
     let out;
     if (req.action === 'inviteInfo') { const u = invitee_(db, req.invite); out = { name: u.name, role: u.role, org: db.setting('orgName') }; }
     else if (req.action === 'join') out = join_(db, req, key);
@@ -79,9 +85,17 @@ function handle_(req) {
     out.ok = true;
     return out;
   } finally {
-    SpreadsheetApp.flush();
+    if (db && db.wrote) SpreadsheetApp.flush();
     lock.releaseLock();
   }
+}
+
+/** Nothing to write and nothing new to read: answer from the cache alone. */
+function quickSync_(req) {
+  const db = new Db_();
+  const user = auth_(db, req.token);
+  if ((Number(req.since) || 0) !== db.rev) return null;
+  return { ok: true, results: [], changes: {}, rev: db.rev, users: db.people().map(publicUser_), me: publicUser_(user) };
 }
 
 /* ------------------------------------------------------------------ Auth */
@@ -106,7 +120,7 @@ function auth_(db, token) {
   const bad = () => fail_('auth', 'නැවත PIN අංකය ඇතුළත් කරන්න.');
   if (p.length !== 4) bad();
   if (!safeEq_(p[3], hmac_('tok|' + p.slice(0, 3).join('~'))) || Number(p[2]) < Date.now()) bad();
-  const u = db.users().find(x => x.id === p[0]);
+  const u = db.people().find(x => x.id === p[0]);
   if (!u || !u.active || String(u.tv) !== p[1]) bad();
   return u;
 }
@@ -128,7 +142,7 @@ function login_(db, req) {
   const u = db.users().find(x => x.id === req.userId && x.active);
   if (!u) fail_('pin', 'පරිශීලකයා හමු නොවුණි.');
   checkPin_(u, req.pin);
-  return { token: newToken_(u), user: publicUser_(u), sheetUrl: u.role === 'admin' ? SpreadsheetApp.getActive().getUrl() : '' };
+  return { token: newToken_(u), user: publicUser_(u), sheetUrl: u.role === 'admin' ? db.book().getUrl() : '', sync: pull_(db, u, req.since) };
 }
 
 function publicUser_(u) {
@@ -184,7 +198,7 @@ function join_(db, req, key) {
   db.save('users', rec, rec);
   db.audit(rec, 'users', rec.id, 'update', { name: u.name }, { name: rec.name, role: rec.role, joined: true });
   db.commit();
-  return { key: key, token: newToken_(rec), user: publicUser_(rec), sheetUrl: '' };
+  return { key: key, token: newToken_(rec), user: publicUser_(rec), sheetUrl: '', sync: pull_(db, rec, 0) };
 }
 
 function userSave_(db, me, p) {
@@ -218,8 +232,9 @@ function setPin_(rec, pin) {
 }
 
 function changePin_(db, me, req) {
-  checkPin_(me, req.oldPin);
-  const rec = Object.assign({}, me);
+  const row = db.load('users').byId[me.id];
+  checkPin_(row, req.oldPin);
+  const rec = Object.assign({}, row);
   setPin_(rec, req.newPin);
   db.save('users', rec, me);
   db.audit(rec, 'users', rec.id, 'update', {}, { pinChanged: true });
@@ -248,17 +263,20 @@ function sync_(db, user, req) {
     results.push(r);
   });
   db.commit();
-  if (moneyTouched) {
-    try { refreshReports_(db); } catch (err) { console.error('reports', err); } // the ledger itself is already saved
-  }
+  if (moneyTouched) markReports_(db.props);
+  return Object.assign(pull_(db, user, since), { results: results });
+}
 
+/** Everything newer than `since`, in the shape a phone expects. */
+function pull_(db, user, since) {
+  since = Number(since) || 0;
   const changes = {};
   Object.keys(SCHEMA).forEach(t => {
     if (db.tableRev(t) <= since) return;
-    const list = db.load(t).rows.filter(x => x.rev > since);
+    const list = db.peek(t).rows.filter(x => x.rev > since);
     if (list.length) changes[t] = list;
   });
-  return { results: results, changes: changes, rev: db.rev, users: db.users().map(publicUser_), me: publicUser_(user) };
+  return { results: [], changes: changes, rev: db.rev, users: db.people().map(publicUser_), me: publicUser_(user) };
 }
 
 /** Returns true when something changed. Throws coded errors on rejection. */
@@ -316,7 +334,7 @@ function authorize_(db, user, table, before, after, changed) {
   if (['donations', 'expenses', 'pledges', 'deliveries', 'parcelItems', 'teams', 'tasks'].indexOf(table) >= 0) {
     const free = table === 'donations' && before && only_(changed, ['settled', 'settledAt']);
     const ids = [after.eventId].concat(before ? [before.eventId] : []);
-    if (!free && ids.some(id => { const ev = db.load('events').byId[id]; return ev && ev.status === 'closed'; }))
+    if (!free && ids.some(id => { const ev = db.peek('events').byId[id]; return ev && ev.status === 'closed'; }))
       deny('මෙම පින්කමේ ගිණුම් වසා ඇත. වෙනස් කිරීමට නම් ප්‍රධාන අයෙක් එය නැවත විවෘත කළ යුතුයි.');
   }
   if (admin) return;
@@ -352,13 +370,13 @@ function authorize_(db, user, table, before, after, changed) {
 
 function validate_(db, table, before, after, changed) {
   const bad = m => fail_('invalid', m);
-  const exists = (t, id) => { const r = db.load(t).byId[id]; return !!r && !r.deleted; };
-  const user = id => db.users().some(u => u.id === id);
+  const exists = (t, id) => { const r = db.peek(t).byId[id]; return !!r && !r.deleted; };
+  const user = id => db.people().some(u => u.id === id);
   const amount = () => { if (!(Number(after.amount) > 0)) bad('මුදල ඇතුළත් කරන්න.'); };
   const day = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 
   if (changed.deleted === true) {
-    const used = (t, k) => db.load(t).rows.some(r => !r.deleted && r[k] === after.id);
+    const used = (t, k) => db.peek(t).rows.some(r => !r.deleted && r[k] === after.id);
     if (table === 'members' && (used('donations', 'memberId') || used('donations', 'payerId'))) bad('මෙම සාමාජිකයාගේ පරිත්‍යාග සටහන් ඇත. මකනවා වෙනුවට "අක්‍රිය" කරන්න.');
     if (table === 'events' && (used('donations', 'eventId') || used('expenses', 'eventId'))) bad('මෙම පින්කමට මුදල් සටහන් ඇති නිසා මැකිය නොහැක.');
     if (table === 'families' && used('deliveries', 'familyId')) bad('මෙම පවුලට බෙදාහැරීම් සටහන් ඇත. මකනවා වෙනුවට "තාවකාලිකව නවත්වන්න".');
@@ -382,7 +400,7 @@ function validate_(db, table, before, after, changed) {
       req('members', 'memberId', 'සාමාජිකයා හමු නොවුණි.');
       if (['cash', 'bank', 'goods'].indexOf(after.kind) < 0) bad('පරිත්‍යාග වර්ගය වැරදියි.');
       if (!before || changed.collectorId !== undefined) {
-        const c = db.users().find(u => u.id === after.collectorId);
+        const c = db.people().find(u => u.id === after.collectorId);
         if (!c || (c.role === 'admin' && !c.collects)) bad('මුදල් එකතු කළ අය තෝරන්න.');
       }
       if (after.kind === 'goods') { if (!after.goods) bad('භාණ්ඩය සඳහන් කරන්න.'); } else amount();
@@ -464,21 +482,53 @@ function cellIn_(v, type) {
 }
 
 function Db_() {
-  this.ss = SpreadsheetApp.getActive();
+  this.ss = null; // opened only when a sheet is really needed
+  this.wrote = false;
+  this.peeked = {};
   this.props = PropertiesService.getScriptProperties();
   this.revs = JSON.parse(this.props.getProperty('revs') || '{}');
   this.rev = Number(this.revs._ || 0);
   this.tables = {};
   this.audits = [];
 }
+Db_.prototype.book = function () { return this.ss || (this.ss = SpreadsheetApp.getActive()); };
+const CACHE_SECONDS = 21600, CACHE_MAX = 90000;
+/** Cache entries are keyed by revision, so any write makes the old entry unreachable. */
+Db_.prototype.cacheKey = function (t) { return 't2_' + t + '_' + this.tableRev(t); };
+Db_.prototype.remember = function (t, rows) {
+  // PIN hashes and invite hashes never leave the sheet; only "is there one" is cached.
+  const safe = t !== 'users' ? rows : rows.map(u => Object.assign({}, u, { pinHash: u.pinHash ? 'y' : '', inviteHash: u.inviteHash ? 'y' : '', salt: '' }));
+  const s = JSON.stringify(safe);
+  // Characters above ASCII take up to three bytes, and one entry may hold 100 KB.
+  if (s.length * 3 < CACHE_MAX || Utilities.newBlob(s).getBytes().length < CACHE_MAX) {
+    try { CacheService.getScriptCache().put(this.cacheKey(t), s, CACHE_SECONDS); } catch (e) { /* a full cache only costs speed */ }
+  }
+};
+/** Read-only view of a table: what this request already loaded, else the cache, else the sheet. */
+Db_.prototype.peek = function (t) {
+  if (this.tables[t]) return this.tables[t];
+  if (this.peeked[t]) return this.peeked[t];
+  const hit = this.tableRev(t) ? CacheService.getScriptCache().get(this.cacheKey(t)) : null;
+  if (hit) {
+    const rows = JSON.parse(hit), byId = {};
+    rows.forEach(r => byId[r.id] = r);
+    return this.peeked[t] = { rows: rows, byId: byId };
+  }
+  const real = this.load(t);
+  // Only under the lock: a reader racing a writer must not cache half-written rows.
+  if (this.locked) this.remember(t, real.rows);
+  return real;
+};
+/** Committee list for permission checks (no secrets in it when it comes from the cache). */
+Db_.prototype.people = function () { return this.peek('users').rows; };
 Db_.prototype.tableRev = function (t) { return Number(this.revs[t] || 0); };
 Db_.prototype.load = function (table) {
   if (this.tables[table]) return this.tables[table];
-  const sh = this.ss.getSheetByName('db_' + table);
+  const sh = this.book().getSheetByName('db_' + table);
   if (!sh) fail_('setup', 'Sheet එකේ "db_' + table + '" කොටස නැත. මෙනුවෙන් "Sheet යාවත්කාලීන කරන්න" ඔබන්න.');
-  const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-  const heads = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  const vals = lastRow > 2 ? sh.getRange(3, 1, lastRow - 2, lastCol).getValues() : [];
+  const grid = sh.getDataRange().getValues(), lastRow = grid.length; // one call instead of four
+  const heads = grid[0].map(String);
+  const vals = grid.slice(2);
   const t = { sheet: sh, heads: heads, rows: [], byId: {}, rowNo: {}, dirty: {}, next: Math.max(lastRow + 1, 3) };
   vals.forEach((r, i) => {
     const o = {};
@@ -489,7 +539,7 @@ Db_.prototype.load = function (table) {
   return this.tables[table] = t;
 };
 Db_.prototype.users = function () { return this.load('users').rows; };
-Db_.prototype.setting = function (k) { const r = this.load('settings').byId[k]; return r && !r.deleted ? r.value : ''; };
+Db_.prototype.setting = function (k) { const r = this.peek('settings').byId[k]; return r && !r.deleted ? r.value : ''; };
 /** `rec` must be a copy, never the stored row itself. */
 Db_.prototype.save = function (table, rec, user) {
   const t = this.load(table);
@@ -514,6 +564,7 @@ Db_.prototype.commit = function () {
     const t = this.tables[name];
     const ids = Object.keys(t.dirty).sort((a, b) => t.rowNo[a] - t.rowNo[b]);
     if (!ids.length) return;
+    this.wrote = true;
     const line = id => t.heads.map(h => h ? cellOut_(t.byId[id][h], fieldDef_(name, h)[0]) : '');
     // Consecutive rows go out in one call.
     for (let i = 0; i < ids.length;) {
@@ -525,9 +576,11 @@ Db_.prototype.commit = function () {
       i = j;
     }
     t.dirty = {};
+    this.remember(name, t.rows);
   });
   if (this.audits.length) {
-    const sh = this.ss.getSheetByName('db_audit');
+    this.wrote = true;
+    const sh = this.book().getSheetByName('db_audit');
     const first = sh.getLastRow() + 1, max = sh.getMaxRows();
     if (first + this.audits.length - 1 > max) sh.insertRowsAfter(max, this.audits.length + 100);
     sh.getRange(first, 1, this.audits.length, AUDIT_HEADS.length).setValues(this.audits);
@@ -564,6 +617,25 @@ function summaryRows_(db) {
   return out;
 }
 
+/** Reports are rebuilt by a timer a few minutes later, so nobody waits for them. */
+function markReports_(props) {
+  props.setProperty('reportsDirty', '1');
+  if (props.getProperty('reportTimer') !== '1') { try { installTimers_(); } catch (e) { console.error('timer', e); } }
+}
+function installTimers_() {
+  const mine = ['dailyReminder', 'refreshReportsTimer'];
+  ScriptApp.getProjectTriggers().filter(t => mine.indexOf(t.getHandlerFunction()) >= 0).forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('dailyReminder').timeBased().everyDays(1).atHour(7).create();
+  ScriptApp.newTrigger('refreshReportsTimer').timeBased().everyMinutes(5).create();
+  PropertiesService.getScriptProperties().setProperty('reportTimer', '1');
+}
+function refreshReportsTimer() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('reportsDirty') !== '1') return;
+  props.deleteProperty('reportsDirty'); // cleared first: a write during the rebuild marks it again
+  try { refreshReports_(new Db_()); } catch (e) { props.setProperty('reportsDirty', '1'); throw e; }
+}
+
 function refreshReports_(db) {
   const name = t => { const m = db.load(t).byId; return id => id === 'BANK' ? 'බැංකුව' : id === 'POOL' ? 'පොදු අරමුදල' : (m[id] ? m[id].name || m[id].title : ''); };
   const mem = name('members'), usr = name('users'), ev = name('events');
@@ -571,10 +643,10 @@ function refreshReports_(db) {
   const byDate = (a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
   const KIND = { cash: 'මුදල්', bank: 'බැංකුවට', goods: 'භාණ්ඩ' };
 
-  report_(db.ss, 'සාරාංශය', ['අරමුදල', 'දිනය', 'පින්කම', 'පෙර ශේෂය', 'එකතු වූ මුදල', 'අරමුදල් මාරු', 'වියදම', 'ඉතිරිය', 'මුදල් පරිත්‍යාග', 'භාණ්ඩ පරිත්‍යාග', 'තත්ත්වය'], summaryRows_(db), 'tttnnnnnnnt');
-  report_(db.ss, 'පරිත්‍යාග', ['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල (රු.)', 'භාණ්ඩය', 'එකතු කළේ', 'සටහන'],
+  report_(db.book(), 'සාරාංශය', ['අරමුදල', 'දිනය', 'පින්කම', 'පෙර ශේෂය', 'එකතු වූ මුදල', 'අරමුදල් මාරු', 'වියදම', 'ඉතිරිය', 'මුදල් පරිත්‍යාග', 'භාණ්ඩ පරිත්‍යාග', 'තත්ත්වය'], summaryRows_(db), 'tttnnnnnnnt');
+  report_(db.book(), 'පරිත්‍යාග', ['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල (රු.)', 'භාණ්ඩය', 'එකතු කළේ', 'සටහන'],
     live('donations').sort(byDate).map(d => [d.date, ev(d.eventId), mem(d.memberId), KIND[d.kind], d.kind === 'goods' ? '' : d.amount, d.goods, usr(d.collectorId), d.note]), 'ttttnttt');
-  report_(db.ss, 'වියදම්', ['දිනය', 'පින්කම', 'විස්තරය', 'වර්ගය', 'මුදල (රු.)', 'ගෙව්වේ', 'කඩය', 'බිල් අංකය', 'සටහන'],
+  report_(db.book(), 'වියදම්', ['දිනය', 'පින්කම', 'විස්තරය', 'වර්ගය', 'මුදල (රු.)', 'ගෙව්වේ', 'කඩය', 'බිල් අංකය', 'සටහන'],
     live('expenses').sort(byDate).map(x => [x.date, ev(x.eventId), x.title, x.category, x.amount, usr(x.paidBy), x.shop, x.billNo, x.note]), 'ttttntttt');
 }
 
@@ -658,8 +730,7 @@ function menuSetup() {
     if (!/^\d{4,8}$/.test(pin || '')) { ui.alert('PIN එක ඉලක්කම් 4ක් විය යුතුයි. නැවත උත්සාහ කරන්න.'); return; }
   }
   setup_(name, pin);
-  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailyReminder').forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('dailyReminder').timeBased().everyDays(1).atHour(7).create();
+  installTimers_();
   ui.alert('සැකසුම සාර්ථකයි! දැන් "Deploy → New deployment → Web app" කර, ඉන්පසු "2. මගේ link එක" ඔබන්න.');
 }
 
@@ -705,10 +776,10 @@ function menuResetPin() {
 function withDb_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(25000);
-  try { const db = new Db_(); fn(db); db.commit(); return db; } finally { SpreadsheetApp.flush(); lock.releaseLock(); }
+  try { const db = new Db_(); db.locked = true; fn(db); db.commit(); return db; } finally { SpreadsheetApp.flush(); lock.releaseLock(); }
 }
 
-function menuUpgrade() { ensureSheets_(); SpreadsheetApp.getUi().alert('Sheet එක යාවත්කාලීනයි.'); }
+function menuUpgrade() { ensureSheets_(); installTimers_(); refreshReports_(new Db_()); SpreadsheetApp.getUi().alert('Sheet එක යාවත්කාලීනයි.'); }
 
 function menuResync() {
   withDb_(db => {

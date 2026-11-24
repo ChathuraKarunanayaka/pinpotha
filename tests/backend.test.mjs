@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBackend } from '../tools/gas-mock.mjs';
+import { createBackend, stats } from '../tools/gas-mock.mjs';
 import { fundLedger, fundBalance, holdings } from '../app/js/calc.js';
 
 function world() {
@@ -252,6 +252,8 @@ test('sheet summary equals the app maths, and cash held equals fund balances', (
   ok(C('donations', 'don5', don('', { eventId: 'evA', amount: 5000 })));
   ok(A('expenses', 'ex1', { eventId: 'ev1', title: 'හාල්', amount: 1800.1, paidBy: admin.id, date: '2026-12-22' }));
   ok(A('transfers', 'tr1', { fromFund: 'annual', toFund: 'poya', amount: 1000, date: '2027-01-15' }));
+  assert.equal(be.sheet('පරිත්‍යාග').getLastRow(), 1); // reports wait for the timer
+  be.ctx.refreshReportsTimer();
   const db = pull().changes;
   const led = fundLedger(db, 'poya');
   assert.equal(led[0].balance, 1950.65);
@@ -298,4 +300,40 @@ test('1,500 rows grow past the default sheet size', () => {
     assert.equal(r.ok, true, r.error);
   }
   assert.equal(pull().changes.members.length, 1602);
+});
+
+test('a quiet sync reads nothing from the sheet; a write is seen at once by the other phone', () => {
+  const { be, key, a, c, C, ok, don, pull } = world();
+  const rev = pull().rev;
+  const n = stats.reads;
+  const q = be.call({ key, token: c.token, action: 'sync', since: rev, ops: [] });
+  assert.equal(stats.reads, n);
+  assert.deepEqual([q.ok, q.rev, q.users.length], [true, rev, 2]);
+  ok(C('donations', 'don1', don()));
+  const r = be.call({ key, token: a.token, action: 'sync', since: rev, ops: [] });
+  assert.equal(r.changes.donations[0].id, 'don1');
+});
+
+test('cache holds no secrets, and role or access changes bite immediately', () => {
+  const { be, key, a, c, coll, pull } = world();
+  const rev = pull().rev;
+  const all = [...be.cache.values()].join();
+  const real = be.sheet('db_users').cells.slice(2).flat().filter(v => typeof v === 'string' && v.length > 30 && !v.startsWith('u'));
+  assert.ok(real.length >= 2);
+  for (const secret of real) assert.ok(!all.includes(secret));
+  assert.equal(be.call({ key, token: c.token, action: 'changePin', oldPin: '0000', newPin: '9999' }).code, 'pin');
+  be.call({ key, token: a.token, action: 'userSave', user: { id: coll.id, active: false } });
+  assert.equal(be.call({ key, token: c.token, action: 'sync', since: rev, ops: [] }).code, 'auth');
+});
+
+test('login brings the data along; the report timer is installed once and survives failure', () => {
+  const { be, key, admin, C, ok, don } = world();
+  const l = be.call({ key, action: 'login', userId: admin.id, pin: '1234' });
+  assert.equal(l.sync.changes.members.length, 2);
+  ok(C('donations', 'don1', don()));
+  ok(C('donations', 'don2', don()));
+  assert.equal(be.timers.filter(t => t.getHandlerFunction() === 'refreshReportsTimer').length, 1);
+  be.ctx.refreshReportsTimer();
+  assert.equal(be.sheet('පරිත්‍යාග').getLastRow(), 3);
+  assert.equal(be.props.has('reportsDirty'), false);
 });

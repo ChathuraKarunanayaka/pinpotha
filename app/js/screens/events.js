@@ -1,5 +1,5 @@
 // Events (poya and anniversary), parcel list, task plan with budget, and delivery.
-import { S, all, userName, canManage, byId, put, remove, isAdmin } from '../store.js';
+import { S, batch, all, userName, canManage, byId, put, remove, isAdmin } from '../store.js';
 import { html, rs, fmtDateLong, fmtDate, today, daysTo, inDays, uid, byName, waNumber } from '../util.js';
 import { FUNDS, fundLedger, eventStats, parcelTotals, plannedParcels, taskSpend, lastDelivered } from '../calc.js';
 import { icon, on, toast, formSheet, sheet, empty, stat, bar, confirmBox } from '../ui.js';
@@ -26,7 +26,7 @@ export function events() {
       ${up.length ? html`<h2 class="sec">ඉදිරි / විවෘත</h2><div class="list card0">${up.map(row)}</div>` : empty('calendar', 'තවම පින්කම් නැහැ.')}
       ${past.length ? html`<h2 class="sec">අවසන් වූ</h2><div class="list card0">${past.map(row)}</div>` : ''}`,
     mount(el) {
-      on(el, 'click', '[data-poya]', async () => { for (const p of missing) await addPoya(p); toast(`පොහොය දින ${missing.length}ක් එක් කළා`); });
+      on(el, 'click', '[data-poya]', async () => { await batch(async () => { for (const p of missing) await addPoya(p); }); toast(`පොහොය දින ${missing.length}ක් එක් කළා`); });
       on(el, 'click', '[data-add]', () => eventForm());
     },
   };
@@ -257,7 +257,7 @@ function chooseFamilies(ev, teams) {
       b.addEventListener('change', () => { const n = b.querySelectorAll('input:checked').length, k = b.querySelector('[data-ok]'); if (k) k.textContent = n ? `පවුල් ${n}ක් එක් කරන්න` : 'එක් කරන්න'; });
       on(b, 'click', '[data-ok]', async () => {
         const ids = [...b.querySelectorAll('input:checked')].map(i => i.value), teamId = b.querySelector('#tsel')?.value || '';
-        for (const familyId of ids) await put('deliveries', dlId(ev, familyId), { eventId: ev.id, familyId, teamId, parcels: 1, status: 'planned', doneAt: '', note: '', deleted: false });
+        await batch(async () => { for (const familyId of ids) await put('deliveries', dlId(ev, familyId), { eventId: ev.id, familyId, teamId, parcels: 1, status: 'planned', doneAt: '', note: '', deleted: false }); });
         close(); if (ids.length) toast(`පවුල් ${ids.length}ක් එක් කළා`);
       });
     },

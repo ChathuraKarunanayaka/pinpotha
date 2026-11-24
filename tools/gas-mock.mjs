@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 
+export const stats = { reads: 0 };
 class Sheet {
   constructor(name) { this.name = name; this.cells = []; this.maxRows = 1000; this.maxCols = 26; this.hidden = false; }
+  getDataRange() { return this.getRange(1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   getLastRow() { for (let r = this.cells.length; r > 0; r--) if ((this.cells[r - 1] || []).some(v => v !== '' && v !== undefined)) return r; return 0; }
   getLastColumn() { return this.cells.reduce((m, r) => { let c = (r || []).length; while (c && (r[c - 1] === '' || r[c - 1] === undefined)) c--; return Math.max(m, c); }, 0); }
   getMaxRows() { return this.maxRows; }
@@ -18,7 +20,7 @@ class Sheet {
     if (r < 1 || c < 1 || n < 1 || w < 1 || r + n - 1 > this.maxRows || c + w - 1 > this.maxCols) throw new Error(`range out of bounds ${this.name} ${r},${c},${n},${w}`);
     const sh = this;
     const range = {
-      getValues: () => Array.from({ length: n }, (_, i) => Array.from({ length: w }, (_, j) => sh.cells[r - 1 + i]?.[c - 1 + j] ?? '')),
+      getValues: () => stats.reads++ < 0 || Array.from({ length: n }, (_, i) => Array.from({ length: w }, (_, j) => sh.cells[r - 1 + i]?.[c - 1 + j] ?? '')),
       setValues(v) {
         if (v.length !== n || v.some(x => x.length !== w)) throw new Error(`size mismatch on ${sh.name}`);
         v.forEach((row, i) => row.forEach((x, j) => { (sh.cells[r - 1 + i] ||= [])[c - 1 + j] = coerce(x); }));
@@ -41,7 +43,7 @@ function coerce(x) {
 
 export function createBackend({ file = new URL('../backend/Code.gs', import.meta.url) } = {}) {
   const sheets = [new Sheet('Sheet1')];
-  const props = new Map();
+  const props = new Map(), cache = new Map(), timers = [];
   const ss = {
     getSheetByName: n => sheets.find(s => s.name === n) || null,
     insertSheet: (n, i) => { const s = new Sheet(n); i === undefined ? sheets.push(s) : sheets.splice(i, 0, s); return s; },
@@ -51,8 +53,11 @@ export function createBackend({ file = new URL('../backend/Code.gs', import.meta
     console, Date, JSON, Math,
     SpreadsheetApp: { getActive: () => ss, flush() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props.get(k) ?? null, setProperty: (k, v) => props.set(k, String(v)), deleteProperty: k => props.delete(k) }) },
+    CacheService: { getScriptCache: () => ({ get: k => cache.get(k) ?? null, put: (k, v) => { if (Buffer.byteLength(v) > 100000) throw new Error('too big'); cache.set(k, v); } }) },
+    ScriptApp: { getProjectTriggers: () => timers.slice(), deleteTrigger: t => timers.splice(timers.indexOf(t), 1), newTrigger: fn => { const t = { getHandlerFunction: () => fn }, c = { timeBased: () => c, everyDays: () => c, atHour: () => c, everyMinutes: () => c, create: () => timers.push(t) }; return c; } },
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) },
     Utilities: {
+      newBlob: s => ({ getBytes: () => Buffer.from(s) }),
       getUuid: () => crypto.randomUUID(),
       computeHmacSha256Signature: (t, k) => [...crypto.createHmac('sha256', k).update(t).digest()],
       base64EncodeWebSafe: b => Buffer.from(b).toString('base64url'),
@@ -64,7 +69,7 @@ export function createBackend({ file = new URL('../backend/Code.gs', import.meta
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(file, 'utf8'), ctx);
   return {
-    ctx, sheets, props,
+    ctx, sheets, props, cache, timers,
     run: code => vm.runInContext(code, ctx),
     sheet: n => sheets.find(s => s.name === n),
     setup: (name, pin) => ctx.setup_(name, pin),

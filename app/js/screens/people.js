@@ -1,5 +1,5 @@
 // Members (who give) and families (who receive).
-import { S, all, byId, put, remove, isAdmin, canManage, memberName, userName } from '../store.js';
+import { S, batch, all, byId, put, remove, isAdmin, canManage, memberName, userName } from '../store.js';
 import { html, rs, norm, byName, prettyPhone, fmtDate, parseMemberLines, waNumber } from '../util.js';
 import { search } from '../search.js';
 import { lastDelivered } from '../calc.js';
@@ -66,7 +66,7 @@ function bulk() {
       });
       on(b, 'click', '[data-save]', async () => {
         btn.disabled = true;
-        for (const r of rows) await put('members', null, { ...r, usual: '', collectorId: '', noRemind: false, anon: false, inactive: false, note: '' });
+        await batch(async () => { for (const r of rows) await put('members', null, { ...r, usual: '', collectorId: '', noRemind: false, anon: false, inactive: false, note: '' }); });
         toast(`${rows.length} දෙනෙක් එක් කළා`);
         close();
       });
