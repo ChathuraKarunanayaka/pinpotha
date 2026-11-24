@@ -1,7 +1,7 @@
 // Boot, routing and the frame around every screen.
 import { S, load, onChange, parseInvite, parseJoin, connect, sync, startAutoSync, isDemo } from './store.js';
 import { html } from './util.js';
-import { icon, on, toast, confirmBox } from './ui.js';
+import { icon, on, toast, confirmBox, closeSheets } from './ui.js';
 import * as auth from './screens/auth.js';
 import { home } from './screens/home.js';
 import { donate, thanks } from './screens/donate.js';
@@ -77,7 +77,7 @@ export function statusChip() {
 
 let backing = false;
 window.navigation?.addEventListener('navigate', e => { if (e.navigationType === 'traverse') backing = true; });
-addEventListener('hashchange', () => { if (!takeInvite()) render(); });
+addEventListener('hashchange', () => { closeSheets(); if (!takeInvite()) render(); });
 on(document.body, 'click', '[data-back]', () => {
   if (current?.back) { backing = true; return go(current.back, true); }
   history_back();

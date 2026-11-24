@@ -46,6 +46,18 @@ export function on(el, type, sel, fn) {
 }
 
 /* ---- dialogs ---- */
+// The keyboard shrinks only the visual viewport; keep sheets inside the part that can be seen.
+const vv = globalThis.visualViewport;
+if (vv) {
+  const fit = () => {
+    const st = document.documentElement.style;
+    st.setProperty('--vvh', vv.height * (vv.scale || 1) + 'px');
+    st.setProperty('--kb', Math.max(0, innerHeight - vv.height * (vv.scale || 1) - vv.offsetTop) + 'px');
+  };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+}
+/** Leaving a page must never leave its window (and the dark screen) behind. */
+export const closeSheets = () => { const open = [...document.querySelectorAll('dialog')]; open.reverse().forEach(d => (d.open ? d.close() : d.remove())); return open.length; };
 /** Opens a full-width sheet. `mount(body, close)` wires it up. Resolves with whatever close() got. */
 export function sheet({ title, body, mount, cls = '' }) {
   return new Promise(res => {
@@ -56,9 +68,17 @@ export function sheet({ title, body, mount, cls = '' }) {
     let out;
     const close = v => { out = v; d.close(); };
     d.addEventListener('close', () => { parkToast(); d.remove(); res(out); });
-    d.addEventListener('click', e => { if (e.target === d && !d.querySelector('form')) close(); });
+    // Tapping the dark area always gets you out, unless something has been typed.
+    let typed = false;
+    d.addEventListener('input', () => { typed = true; });
+    d.addEventListener('click', e => { if (e.target === d && !typed) close(); });
     on(d, 'click', '[data-close]', () => close());
     d.showModal();
+    // Last resort: if a browser put the sheet off screen, pin it to the top instead of leaving a dark page.
+    requestAnimationFrame(() => {
+      const r = d.getBoundingClientRect();
+      if (d.open && (r.height < 60 || r.bottom < 60 || r.top > innerHeight - 60)) d.classList.add('pinned');
+    });
     mount?.(d.querySelector('.sheet-body'), close);
   });
 }

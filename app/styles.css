@@ -186,3 +186,12 @@ dialog.sheet { border: 0; padding: 0; width: 100%; max-width: 620px; max-height:
 .collage canvas { width: 100%; aspect-ratio: 4/5; border-radius: 16px; display: block; background: var(--night); } .swatch span { display: flex !important; align-items: center; gap: 8px; } .swatch i { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #8d97bf; } .optimg { width: 100%; max-height: 42dvh; object-fit: contain; border-radius: 12px; background: #eef0f8; }
 label.btn { cursor: pointer; } label.btn:focus-within { outline: 3px solid #5b7cff; outline-offset: 2px; }
 .row.mine-row { background: var(--info-bg); }
+
+/* sheets: sized by content, never by a percentage of an unknown height (iPhone), and kept above the keyboard */
+dialog.sheet { position: fixed; inset: auto 0 var(--kb, 0px) 0; margin: 0 auto; max-height: 94vh; max-height: calc(var(--vvh, 100vh) * .94); }
+dialog.sheet[open] { display: flex; flex-direction: column; }
+dialog.sheet.tall { height: 94vh; height: calc(var(--vvh, 100vh) * .94); }
+.sheet-in { flex: 1 1 auto; min-height: 0; height: auto; max-height: none; }
+.sheet-body { flex: 1 1 auto; min-height: 0; }
+dialog.sheet.pinned { inset: 12px 0 auto 0; }
+@media (min-width: 660px) { dialog.sheet { inset: 0; margin: auto; height: fit-content; } dialog.sheet.tall { height: 86vh; } }
