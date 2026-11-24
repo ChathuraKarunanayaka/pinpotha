@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { waNumber, parseMemberLines, money, html, raw } from '../app/js/util.js';
-import { pledgeStatus, holdings, parcelTotals, currentEvent, areaCounts, openDebts, fundLedger } from '../app/js/calc.js';
+import { pledgeStatus, holdings, parcelTotals, currentEvent, areaCounts, fundLedger } from '../app/js/calc.js';
 import { POYA } from '../app/js/poya.js';
 
 test('phone numbers in every way people write them', () => {
@@ -33,13 +33,18 @@ test('a gift pays off pledges once, even with two pledges', () => {
   assert.deepEqual(pledgeStatus(db, 'e').map(p => p.due), [0, 500]);
 });
 
-test('goods never count as cash; bank gifts sit in the bank; pending handovers stay with the giver', () => {
-  const db = { events: [{ id: 'e' }], donations: [don('m', 100), don('m', 50, { kind: 'bank' }), don('m', 999, { kind: 'goods' }), don('m', 7, { deleted: true })], handovers: [{ fromId: 'u', toId: 'v', amount: 60, status: 'pending' }, { fromId: 'u', toId: 'v', amount: 10, status: 'confirmed' }], expenses: [{ eventId: 'e', amount: 25, paidBy: 'v' }] };
-  assert.deepEqual(holdings(db, ['u', 'v']), { u: 90, v: -15, BANK: 50 });
+test('goods never count as cash; bank gifts sit in the bank; expenses come off whoever paid', () => {
+  const db = { events: [{ id: 'e', status: 'open' }], donations: [don('m', 100), don('m', 50, { kind: 'bank' }), don('m', 999, { kind: 'goods' }), don('m', 7, { deleted: true })], expenses: [{ eventId: 'e', amount: 25, paidBy: 'v' }] };
+  assert.deepEqual(holdings(db, ['u', 'v'], 'v'), { u: 100, v: -25, BANK: 50 });
 });
 
-test('a donation on behalf is a debt until settled', () => {
-  assert.equal(openDebts({ donations: [don('m', 1, { payerId: 'p' }), don('m', 1, { payerId: 'p', settled: true }), don('m', 1)] }).length, 1);
+test('closing an event moves what is left to the treasurer; bank money and open events stay put', () => {
+  const db = {
+    events: [{ id: 'e', status: 'closed' }, { id: 'f', status: 'open' }],
+    donations: [don('m', 100), don('m', 50, { kind: 'bank' }), don('m', 30, { eventId: 'f' })],
+    expenses: [{ eventId: 'e', amount: 25, paidBy: 'v' }, { eventId: 'e', amount: 10, paidBy: 'BANK' }], openings: [{ fund: 'poya', holder: 'u', amount: 5 }],
+  };
+  assert.deepEqual(holdings(db, ['u', 'v', 't'], 't'), { u: 30, v: 0, t: 80, BANK: 40 });
 });
 
 test('parcel totals', () => {

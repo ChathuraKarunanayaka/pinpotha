@@ -1,4 +1,5 @@
 // Reusable interface pieces: icons, toast, dialogs, forms, member picker.
+import { search } from './search.js';
 import { html, raw, norm, byName, prettyPhone, today, rs } from './util.js';
 import { all, put, me, byId, memberName } from './store.js';
 
@@ -19,6 +20,7 @@ const P = {
   phone: 'M6 3h4l1.500 5-2.500 1.500a12 12 0 0 0 5.500 5.500L16 12.500l5 1.500v4c0 1.500-1.500 3-3 3C10 21 3 14 3 6c0-1.500 1.500-3 3-3Z', pin: 'M12 21s-7-6-7-11.500a7 7 0 0 1 14 0C19 15 12 21 12 21ZM12 12a2.500 2.500 0 1 0 0-5 2.500 2.500 0 0 0 0 5Z',
   copy: 'M9 9h11v11H9V9ZM5 15H4V4h11v1', share: 'M12 15V4M8 7.500 12 3.500l4 4M5 12v8h14v-8', search: 'M10.500 17a6.500 6.500 0 1 0 0-13 6.500 6.500 0 0 0 0 13ZM15.500 15.500 20.500 20.500',
   gift: 'M4 11h16v9H4v-9ZM3 7h18v4H3V7ZM12 7v13M12 7c-2 0-4-.8-4-2.500S11 3 12 7c1-4 4-4 4-2.500S14 7 12 7Z', bank: 'M3 9l9-5 9 5H3ZM5 9v9M10 9v9M14 9v9M19 9v9M3 20h18', cash: 'M3 6h18v12H3V6ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9.500v5M18 9.500v5',
+  camera: 'M4 8h4l1.500-2.500h5L16 8h4v11H4V8ZM12 16.500a3.300 3.300 0 1 0 0-6.600 3.300 3.300 0 0 0 0 6.600Z', image: 'M4 5h16v14H4V5ZM4 16l5-5 4 4 2.500-2.500L20 17M15 10a1.200 1.200 0 1 0 0-2.400 1.200 1.200 0 0 0 0 2.400Z',
   lotus: 'M12 19c-3-2-4.500-5-4.500-7.500S9.500 7 12 4.500c2.500 2.500 4.500 4.500 4.500 7S15 17 12 19ZM7.500 11C5 10.500 3.500 11 2.500 12c1 4 4.500 7 9.500 7 5 0 8.500-3 9.500-7-1-1-2.500-1.500-5-1', lock: 'M6 11h12v9H6v-9ZM8.500 11V8a3.500 3.500 0 0 1 7 0v3', sync: 'M20 8A8.500 8.500 0 0 0 5 7.500M4 4v4h4M4 16a8.500 8.500 0 0 0 15 .5M20 20v-4h-4', alert: 'M12 4 2.500 20h19L12 4ZM12 10v5M12 17.500v.2', sheet: 'M4 4h16v16H4V4ZM4 9h16M4 14.500h16M10 9v11', box: 'M4 8l8-4 8 4v8l-8 4-8-4V8ZM4 8l8 4 8-4M12 12v8',
 };
 export const icon = (n, cls = '') => raw(`<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${P[n] || ''}"/></svg>`);
@@ -152,7 +154,7 @@ export function memberForm(m = {}, users = []) {
     fields: [
       { key: 'name', label: 'නම', required: true, placeholder: 'උදා: සුනිල් පෙරේරා', check: (v, o) => !m.id && all('members').some(x => norm(x.name) === norm(v) && prettyPhone(x.phone) === prettyPhone(o.phone)) ? 'මේ නම දැනටමත් ලැයිස්තුවේ ඇත.' : '' },
       { key: 'phone', label: 'WhatsApp අංකය', type: 'tel', placeholder: '077 123 4567' },
-      { key: 'area', label: 'ප්‍රදේශය', list: areas() },
+      { key: 'area', label: 'ගම / ප්‍රදේශය', list: areas() },
       { key: 'usual', label: 'සාමාන්‍යයෙන් දෙන මුදල', type: 'money' },
       { key: 'collectorId', label: 'මතක් කිරීම භාර අය', type: 'select', options: users.filter(u => u.active).map(u => [u.id, u.name]), value: m.id ? '' : me().id },
       { key: 'anon', label: 'Group වාර්තාවල නම නොපෙන්වන්න', type: 'toggle' },
@@ -172,12 +174,12 @@ export function pickMember({ title = 'සාමාජිකයා තෝරන�
     mount: (b, close) => mountPicker(b, { onPick: close, exclude, badge }),
   });
 }
-export const pickerHtml = () => html`<div class="search">${icon('search')}<input type="search" placeholder="නම හෝ දුරකථනය ලියන්න" aria-label="සොයන්න" autocomplete="off"></div><div class="list" data-list></div>`;
+export const pickerHtml = () => html`<div class="search">${icon('search')}<input type="search" placeholder="නම — සිංහල හෝ English (Anula)" aria-label="සොයන්න" autocomplete="off"></div><div class="list" data-list></div>`;
 export function mountPicker(el, { onPick, exclude, badge, sort = byName }) {
   const input = el.querySelector('input[type=search]'), list = el.querySelector('[data-list]');
   const draw = () => {
-    const q = norm(input.value), qd = q.replace(/\D/g, '').replace(/^0/, '');
-    const rows = all('members').filter(m => !m.inactive && m.id !== exclude && (!q || norm(m.name).includes(q) || norm(m.area).includes(q) || (qd.length > 2 && String(m.phone).replace(/\D/g, '').includes(qd)))).sort(sort);
+    const q = input.value.trim();
+    const rows = search(all('members').filter(m => !m.inactive && m.id !== exclude).sort(sort), q, m => ({ phone: m.phone, text: [m.name, m.area] }));
     const add = html`<button type="button" class="row add" data-new>${icon('plus', 'lead-i')}<span class="grow"><b>${q ? `“${input.value.trim()}” අලුතින් එක් කරන්න` : 'අලුත් සාමාජිකයෙක් එක් කරන්න'}</b></span></button>`;
     list.innerHTML = html`${q && !rows.length ? add : ''}${rows.slice(0, 200).map(m => html`<button type="button" class="row" data-m="${m.id}"><span class="ava">${[...String(m.name)][0]}</span><span class="grow"><b>${m.name}</b><small>${badge?.(m) || [m.area, prettyPhone(m.phone)].filter(Boolean).join(' · ')}</small></span>${icon('next')}</button>`)}${q && !rows.length ? '' : add}`;
   };

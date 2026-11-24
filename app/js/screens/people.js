@@ -1,6 +1,7 @@
 // Members (who give) and families (who receive).
 import { S, all, byId, put, remove, isAdmin, memberName, userName } from '../store.js';
 import { html, rs, norm, byName, prettyPhone, fmtDate, parseMemberLines, waNumber } from '../util.js';
+import { search } from '../search.js';
 import { lastDelivered } from '../calc.js';
 import { icon, on, toast, sheet, formSheet, memberForm, empty, confirmBox, areas } from '../ui.js';
 import { render } from '../main.js';
@@ -11,14 +12,13 @@ export function members({ open }) {
   return {
     title: 'සාමාජිකයන්', back: 'more',
     body: html`<div class="two"><button type="button" class="btn primary" data-add>${icon('plus')} එක් කරන්න</button><button type="button" class="btn ghost" data-bulk>${icon('copy')} ලැයිස්තුවක්</button></div>
-      <div class="search">${icon('search')}<input type="search" placeholder="නම, ප්‍රදේශය හෝ දුරකථනය" value="${q}" aria-label="සොයන්න"></div>
+      <div class="search">${icon('search')}<input type="search" placeholder="නම — සිංහල හෝ English (Anula)" value="${q}" aria-label="සොයන්න"></div>
       <p class="sub" data-count></p><div class="list card0" data-list></div>`,
     mount(el) {
       const list = el.querySelector('[data-list]');
       const draw = () => {
-        const n = norm(q), digits = n.replace(/\D/g, '').replace(/^0/, '');
         const base = all('members'), off = base.filter(m => m.inactive).length;
-        const rows = base.filter(m => (showOff || !m.inactive) && (!n || norm(m.name).includes(n) || norm(m.area).includes(n) || (digits.length > 2 && String(m.phone).replace(/\D/g, '').includes(digits)))).sort(byName);
+        const rows = search(base.filter(m => showOff || !m.inactive).sort(byName), q, m => ({ phone: m.phone, text: [m.name, m.area] }));
         el.querySelector('[data-count]').innerHTML = html`${rows.length} දෙනෙක්${off ? html` · <button type="button" class="inline" data-off>${showOff ? 'අක්‍රිය අය සඟවන්න' : `අක්‍රිය අය (${off}) පෙන්වන්න`}</button>` : ''}`;
         list.innerHTML = rows.length ? html`${rows.map(m => html`<button type="button" class="row ${m.inactive ? 'dim' : ''}" data-m="${m.id}"><span class="ava">${[...m.name][0]}</span><span class="grow"><b>${m.name}</b><small>${[m.area, prettyPhone(m.phone) || 'අංකය නැත'].filter(Boolean).join(' · ')}</small></span>${icon('next')}</button>`)}` : empty('people', q ? 'හමු වුණේ නැහැ.' : 'තවම සාමාජිකයන් නැහැ. එකින් එක හෝ ලැයිස්තුවක් ලෙස එක් කරන්න.');
       };
@@ -40,7 +40,7 @@ function memberSheet(m) {
     body: html`<p class="lead">${[m.area, prettyPhone(m.phone)].filter(Boolean).join(' · ')}${m.collectorId ? html`<br><small>භාර: ${userName(m.collectorId)}</small>` : ''}</p>${m.note ? html`<p class="sub">${m.note}</p>` : ''}
       <div class="two"><button type="button" class="btn ghost" data-edit>${icon('edit')} වෙනස් කරන්න</button>${waNumber(m.phone) ? html`<a class="btn ghost" href="tel:+${waNumber(m.phone)}">${icon('phone')} අමතන්න</a>` : ''}</div>
       <h2 class="sec">පරිත්‍යාග (${dons.length})${total ? ` · ${rs(total)}` : ''}</h2>
-      ${dons.length ? html`<div class="list card0">${dons.map(d => html`<div class="row"><span class="grow"><b>${byId('events', d.eventId)?.title || ''}</b><small>${fmtDate(d.date)}${d.payerId ? ` · ගෙව්වේ ${memberName(d.payerId)}` : ''}</small></span><strong>${d.kind === 'goods' ? d.goods : rs(d.amount)}</strong></div>`)}</div>` : html`<p class="sub">තවම නැහැ.</p>`}
+      ${dons.length ? html`<div class="list card0">${dons.map(d => html`<div class="row"><span class="grow"><b>${byId('events', d.eventId)?.title || ''}</b><small>${fmtDate(d.date)}</small></span><strong>${d.kind === 'goods' ? d.goods : rs(d.amount)}</strong></div>`)}</div>` : html`<p class="sub">තවම නැහැ.</p>`}
       ${isAdmin() && !dons.length ? html`<button type="button" class="btn link danger" data-del>${icon('trash')} මකන්න</button>` : ''}`,
     mount(b, close) {
       on(b, 'click', '[data-edit]', () => { close(); memberForm(m, S.users); });
@@ -84,13 +84,12 @@ export function families() {
     title: 'ආධාර ලබන පවුල්', back: 'more',
     body: html`<button type="button" class="btn primary huge" data-add>${icon('plus')} පවුලක් එක් කරන්න</button>
       <div class="seg">${[['all', 'සියල්ල'], ...Object.entries(FAM_STATUS)].map(([k, l]) => html`<button type="button" data-s="${k}" class="${fs === k ? 'on' : ''}">${l} (${k === 'all' ? fams.length : fams.filter(f => f.status === k).length})</button>`)}</div>
-      <div class="search">${icon('search')}<input type="search" placeholder="නම හෝ ප්‍රදේශය" value="${fq}" aria-label="සොයන්න"></div>
+      <div class="search">${icon('search')}<input type="search" placeholder="නම හෝ ගම — සිංහල හෝ English" value="${fq}" aria-label="සොයන්න"></div>
       <div data-list></div><p class="sub center">${icon('lock')} මෙම විස්තර පෙනෙන්නේ කමිටුවට පමණි.</p>`,
     mount(el) {
       const list = el.querySelector('[data-list]');
       const draw = () => {
-        const n = norm(fq);
-        const rows = fams.filter(f => (fs === 'all' || f.status === fs) && (!n || norm(f.name).includes(n) || norm(f.area).includes(n)));
+        const rows = search(fams.filter(f => fs === 'all' || f.status === fs), fq, f => ({ phone: f.phone, text: [f.name, f.area] }));
         const groups = {};
         rows.forEach(f => { (groups[f.area || 'ප්‍රදේශය සඳහන් නැත'] ||= []).push(f); });
         list.innerHTML = rows.length ? html`${Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0], 'si')).map(([a, fl]) => html`<h2 class="sec">${icon('pin')} ${a} (${fl.length})</h2><div class="list card0">${fl.sort(byName).map(f => html`<a class="row" href="#/family?id=${f.id}">${icon('house', 'lead-i')}<span class="grow"><b>${f.name}${f.urgent ? html` <span class="tag bad">හදිසි</span>` : ''}${f.status !== 'approved' ? html` <span class="tag">${FAM_STATUS[f.status]}</span>` : ''}</b><small>${[f.people && `${f.people} දෙනෙක්`, f.need, last[f.id] ? `අවසන් වරට ${fmtDate(last[f.id])}` : 'තවම ලබා දී නැත'].filter(Boolean).join(' · ')}</small></span>${icon('next')}</a>`)}</div>`)}` : empty('house', 'පවුල් නැහැ.');
@@ -107,7 +106,7 @@ export function familyForm(f = {}) {
     title: f.id ? 'පවුලේ විස්තර' : 'අලුත් පවුලක්', value: f,
     fields: [
       { key: 'name', label: 'ගෘහ මූලිකයාගේ නම', required: true },
-      { key: 'area', label: 'ප්‍රදේශය', required: true, list: areas(), hint: 'Group වාර්තාවල පෙන්වන්නේ මෙය පමණි.' },
+      { key: 'area', label: 'ගම / ප්‍රදේශය', required: true, list: areas(), hint: 'Group වාර්තාවල පෙන්වන්නේ මෙය පමණි.' },
       { key: 'address', label: 'ලිපිනය', type: 'textarea', rows: 2 },
       { key: 'phone', label: 'දුරකථනය', type: 'tel' },
       { key: 'people', label: 'පවුලේ සාමාජිකයන් ගණන', type: 'number' }, { key: 'children', label: 'ඉන් ළමුන් ගණන', type: 'number' },

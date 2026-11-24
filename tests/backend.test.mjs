@@ -106,20 +106,6 @@ test('closed event is frozen, but a debt can still be settled', () => {
   ok(C('donations', 'don1', { amount: 1500 }));
 });
 
-test('handover: only the receiver confirms; bank needs an admin', () => {
-  const { A, C, ok, no, admin, coll } = world();
-  const h = p => ({ fromId: coll.id, toId: admin.id, amount: 500, date: '2026-12-21', status: 'pending', ...p });
-  no(C('handovers', 'h01', h({ status: 'confirmed' })));
-  no(C('handovers', 'h01', h({ fromId: admin.id, toId: coll.id })));
-  ok(C('handovers', 'h01', h()));
-  no(C('handovers', 'h01', { status: 'confirmed' }));
-  ok(A('handovers', 'h01', { status: 'confirmed' }));
-  no(C('handovers', 'h01', { amount: 1 }));
-  ok(C('handovers', 'h02', h({ toId: 'BANK' })));
-  no(C('handovers', 'h02', { status: 'confirmed' }));
-  ok(A('handovers', 'h02', { status: 'confirmed' }));
-});
-
 test('replaying the same op is harmless, patches merge by field, pulls are incremental', () => {
   const { be, key, a, C, A, ok, don, pull } = world();
   ok(C('donations', 'don1', don()));
@@ -173,7 +159,6 @@ test('sheet summary equals the app maths, and cash held equals fund balances', (
   ok(C('donations', 'don5', don('', { eventId: 'evA', amount: 5000 })));
   ok(A('expenses', 'ex1', { eventId: 'ev1', title: 'හාල්', amount: 1800.1, paidBy: admin.id, date: '2026-12-22' }));
   ok(A('transfers', 'tr1', { fromFund: 'annual', toFund: 'poya', amount: 1000, date: '2027-01-15' }));
-  ok(A('handovers', 'ha1', { fromId: coll.id, toId: admin.id, amount: 600, date: '2026-12-23', status: 'confirmed' }));
   const db = pull().changes;
   const led = fundLedger(db, 'poya');
   assert.equal(led[0].balance, 1950.65);
@@ -182,7 +167,7 @@ test('sheet summary equals the app maths, and cash held equals fund balances', (
   assert.equal(led[1].balance, 3650.65);
   const sh = be.sheet('සාරාංශය').cells.slice(1).filter(r => r[0] === 'මාසික පොහොය අරමුදල');
   assert.deepEqual(sh.map(r => r.slice(3, 8)), led.map(l => [l.brought, l.income, l.transfer, l.spent, l.balance]));
-  const held = Object.values(holdings(db, [admin.id, coll.id])).reduce((s, x) => s + x, 0);
+  const held = Object.values(holdings(db, [admin.id, coll.id], admin.id)).reduce((s, x) => s + x, 0);
   assert.equal(Math.round(held * 100), Math.round((fundBalance(db, 'poya') + fundBalance(db, 'annual')) * 100));
   assert.equal(be.sheet('පරිත්‍යාග').getLastRow(), 6);
 });

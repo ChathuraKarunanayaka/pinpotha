@@ -13,7 +13,6 @@ const SCHEMA = {
   members:    { name: ['s', 'නම'], phone: ['s', 'දුරකථනය'], area: ['s', 'ප්‍රදේශය'], usual: ['n', 'සාමාන්‍ය මුදල'], collectorId: ['s', 'භාර'], noRemind: ['b', 'මතක් නොකරන්න'], anon: ['b', 'නම නොපෙන්වන්න'], inactive: ['b', 'අක්‍රිය'], note: ['s', 'සටහන'] },
   donations:  { eventId: ['s', 'පින්කම'], memberId: ['s', 'සාමාජිකයා'], kind: ['s', 'වර්ගය'], amount: ['n', 'මුදල'], goods: ['s', 'භාණ්ඩය'], collectorId: ['s', 'එකතු කළේ'], payerId: ['s', 'වෙනුවෙන් ගෙව්වේ'], settled: ['b', 'පියවූ'], settledAt: ['s', 'පියවූ දිනය'], date: ['s', 'දිනය'], note: ['s', 'සටහන'] },
   pledges:    { eventId: ['s', 'පින්කම'], memberId: ['s', 'සාමාජිකයා'], amount: ['n', 'මුදල'], cancelled: ['b', 'අවලංගු'], note: ['s', 'සටහන'] },
-  handovers:  { fromId: ['s', 'දුන්නේ'], toId: ['s', 'ගත්තේ'], amount: ['n', 'මුදල'], date: ['s', 'දිනය'], status: ['s', 'තත්ත්වය'], note: ['s', 'සටහන'] },
   expenses:   { eventId: ['s', 'පින්කම'], taskId: ['s', 'කාර්යය'], category: ['s', 'වර්ගය'], title: ['s', 'විස්තරය'], amount: ['n', 'මුදල'], paidBy: ['s', 'ගෙව්වේ'], shop: ['s', 'කඩය'], billNo: ['s', 'බිල් අංකය'], date: ['s', 'දිනය'], note: ['s', 'සටහන'] },
   openings:   { fund: ['s', 'අරමුදල'], holder: ['s', 'මුදල් ළඟ'], amount: ['n', 'මුදල'], date: ['s', 'දිනය'], note: ['s', 'සටහන'] },
   transfers:  { fromFund: ['s', 'අරමුදලෙන්'], toFund: ['s', 'අරමුදලට'], amount: ['n', 'මුදල'], date: ['s', 'දිනය'], note: ['s', 'සටහන'] },
@@ -29,7 +28,7 @@ const META = { deleted: ['b', 'මකා ඇත'], rev: ['n', 'rev'], updatedAt:
 const AUDIT_HEADS = ['at', 'userId', 'userName', 'table', 'recId', 'action', 'before', 'after'];
 
 const FUNDS = { poya: 'මාසික පොහොය අරමුදල', annual: 'සංවත්සර අරමුදල' };
-const MONEY_TABLES = ['events', 'members', 'donations', 'expenses', 'openings', 'transfers', 'handovers', 'pledges'];
+const MONEY_TABLES = ['events', 'members', 'donations', 'expenses', 'openings', 'transfers', 'pledges'];
 const MAX_OPS = 400, MAX_TEXT = 2000, MAX_AMOUNT = 100000000;
 const TOKEN_DAYS = 365, MAX_PIN_TRIES = 5;
 
@@ -258,7 +257,6 @@ function authorize_(db, user, table, before, after, changed) {
     if (!free && ids.some(id => { const ev = db.load('events').byId[id]; return ev && ev.status === 'closed'; }))
       deny('මෙම පින්කමේ ගිණුම් වසා ඇත. වෙනස් කිරීමට නම් ප්‍රධාන අයෙක් එය නැවත විවෘත කළ යුතුයි.');
   }
-  if (table === 'handovers') return authorizeHandover_(user, admin, before, after, changed, deny);
   if (admin) return;
 
   switch (table) {
@@ -285,18 +283,6 @@ function authorize_(db, user, table, before, after, changed) {
       return;
     default: deny();
   }
-}
-
-function authorizeHandover_(user, admin, before, after, changed, deny) {
-  if (!before) {
-    if (!admin && after.fromId !== user.id) deny('ඔබ අත ඇති මුදල් පමණක් භාර දෙන්න.');
-    if (!admin && after.status !== 'pending') deny();
-    return;
-  }
-  if (admin) return;
-  if (changed.status === 'confirmed' && only_(changed, ['status']) && before.toId === user.id && before.status === 'pending' && !before.deleted) return;
-  if (before.status === 'pending' && before.fromId === user.id && after.fromId === user.id && after.status === 'pending') return;
-  deny('මෙම භාරදීම වෙනස් කළ නොහැක.');
 }
 
 function validate_(db, table, before, after, changed) {
@@ -340,12 +326,6 @@ function validate_(db, table, before, after, changed) {
     case 'pledges':
       req('events', 'eventId', 'පින්කම හමු නොවුණි.');
       req('members', 'memberId', 'සාමාජිකයා හමු නොවුණි.');
-      amount();
-      break;
-    case 'handovers':
-      if (after.fromId === after.toId) bad('දෙන කෙනා සහ ගන්නා කෙනා වෙනස් විය යුතුයි.');
-      [after.fromId, after.toId].forEach(id => { if (id !== 'BANK' && !user(id)) bad('පරිශීලකයා හමු නොවුණි.'); });
-      if (['pending', 'confirmed'].indexOf(after.status) < 0) bad('තත්ත්වය වැරදියි.');
       amount();
       break;
     case 'expenses':
@@ -524,12 +504,10 @@ function refreshReports_(db) {
   const KIND = { cash: 'මුදල්', bank: 'බැංකුවට', goods: 'භාණ්ඩ' };
 
   report_(db.ss, 'සාරාංශය', ['අරමුදල', 'දිනය', 'පින්කම', 'පෙර ශේෂය', 'එකතු වූ මුදල', 'අරමුදල් මාරු', 'වියදම', 'ඉතිරිය', 'මුදල් පරිත්‍යාග', 'භාණ්ඩ පරිත්‍යාග', 'තත්ත්වය'], summaryRows_(db), 'tttnnnnnnnt');
-  report_(db.ss, 'පරිත්‍යාග', ['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල (රු.)', 'භාණ්ඩය', 'එකතු කළේ', 'වෙනුවෙන් ගෙව්වේ', 'සටහන'],
-    live('donations').sort(byDate).map(d => [d.date, ev(d.eventId), mem(d.memberId), KIND[d.kind], d.kind === 'goods' ? '' : d.amount, d.goods, usr(d.collectorId), mem(d.payerId), d.note]), 'ttttntttt');
+  report_(db.ss, 'පරිත්‍යාග', ['දිනය', 'පින්කම', 'සාමාජිකයා', 'වර්ගය', 'මුදල (රු.)', 'භාණ්ඩය', 'එකතු කළේ', 'සටහන'],
+    live('donations').sort(byDate).map(d => [d.date, ev(d.eventId), mem(d.memberId), KIND[d.kind], d.kind === 'goods' ? '' : d.amount, d.goods, usr(d.collectorId), d.note]), 'ttttnttt');
   report_(db.ss, 'වියදම්', ['දිනය', 'පින්කම', 'විස්තරය', 'වර්ගය', 'මුදල (රු.)', 'ගෙව්වේ', 'කඩය', 'බිල් අංකය', 'සටහන'],
     live('expenses').sort(byDate).map(x => [x.date, ev(x.eventId), x.title, x.category, x.amount, usr(x.paidBy), x.shop, x.billNo, x.note]), 'ttttntttt');
-  report_(db.ss, 'වෙනුවෙන් ගෙවීම්', ['දිනය', 'පින්කම', 'ඉල්ලා සිටි අය', 'ගෙවූ අය', 'මුදල (රු.)', 'තත්ත්වය'],
-    live('donations').filter(d => d.payerId).sort(byDate).map(d => [d.date, ev(d.eventId), mem(d.memberId), mem(d.payerId), d.amount, d.settled ? 'පියවා ඇත' : 'ලැබිය යුතුයි']), 'ttttnt');
 }
 
 function report_(ss, title, heads, rows, types) {

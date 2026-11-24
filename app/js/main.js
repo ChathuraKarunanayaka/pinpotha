@@ -7,16 +7,18 @@ import { home } from './screens/home.js';
 import { donate, thanks } from './screens/donate.js';
 import { collection, donationDetail } from './screens/collection.js';
 import { messagesHome, queue, groupPost } from './screens/messages.js';
-import { cash, expenses, pledges, behalf } from './screens/money.js';
+import { cash, expenses, pledges } from './screens/money.js';
 import { members, families, familyDetail } from './screens/people.js';
 import { events, eventDetail, parcels, tasks, delivery } from './screens/events.js';
+import { report } from './screens/report.js';
+import { photos } from './screens/photos.js';
 import { more, reports, history, settings, users, help } from './screens/more.js';
 
 /** A screen is { title, body, mount?(el), back?, tab? }. Add new ones here. */
 const ROUTES = {
   home, donate, thanks, collection, donation: donationDetail, messages: messagesHome, queue, group: groupPost,
-  cash, expenses, pledges, behalf, members, families, family: familyDetail, events, event: eventDetail,
-  parcels, tasks, delivery, more, reports, history, settings, users, help,
+  cash, expenses, pledges, members, families, family: familyDetail, events, event: eventDetail,
+  parcels, tasks, delivery, report, photos, more, reports, history, settings, users, help,
 };
 const TABS = [['home', 'home', 'මුල් පිටුව'], ['collection', 'coins', 'එකතුව'], ['donate', 'plus', 'මුදලක්'], ['messages', 'chat', 'පණිවිඩ'], ['more', 'more', 'තවත්']];
 
@@ -43,7 +45,7 @@ export function render({ keepScroll } = {}) {
     ${name === 'home' ? '' : html`<header class="topbar">${top ? html`<span class="tb-sp"></span>` : html`<button type="button" class="iconbtn" data-back aria-label="ආපසු">${icon('back')}</button>`}<h1>${scr.title}</h1>${statusChip()}</header>`}
     <main id="main">${scr.body}</main>
     ${scr.focus ? '' : html`<nav class="tabs">${TABS.map(([r, ic, l]) => html`<a href="#/${r}" class="${[r === name ? 'on' : '', r === 'donate' ? 'big' : ''].join(' ')}" ${r === name ? 'aria-current=page' : ''}><span>${icon(ic)}</span><small>${l}</small></a>`)}</nav>`}`;
-  document.title = scr.title ? `${scr.title} — පින් පොත` : 'පින් පොත';
+  document.title = scr.title ? `${scr.title} — දනට පින් ඇත්තෝ` : 'දනට පින් ඇත්තෝ';
   scr.mount?.(document.getElementById('main'));
   if (key !== scrollKey) scrollTo(0, backing ? scrolls[key] || 0 : 0);
   backing = false;
@@ -85,10 +87,12 @@ onChange(kind => {
   if (kind === 'status') { const c = document.querySelector('.sync'); if (c) c.outerHTML = String(statusChip()); return; }
   if (kind === 'session') return render();
   // Never redraw under someone's fingers: an open dialog or a half-typed form stays as it is.
-  if (document.querySelector('dialog[open]') || current?.keep) { pendingDraw = true; return; }
+  if (document.querySelector('dialog[open]') || current?.keep || typing()) { pendingDraw = true; return; }
   render({ keepScroll: true });
 });
 let pendingDraw = false;
+const typing = () => !!document.activeElement?.closest?.('#main input:not([type=checkbox]):not([type=radio]), #main textarea, #main select');
+addEventListener('focusout', () => setTimeout(() => { if (pendingDraw && !typing() && !document.querySelector('dialog[open]') && !current?.keep) { pendingDraw = false; render({ keepScroll: true }); } }, 200));
 new MutationObserver(() => { if (pendingDraw && !document.querySelector('dialog[open]') && !current?.keep) { pendingDraw = false; render({ keepScroll: true }); } }).observe(document.body, { childList: true });
 
 /** Invite links look like …/#setup=<id>.<key>; the secret is removed from the address bar straight away. */

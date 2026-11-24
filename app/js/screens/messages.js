@@ -1,7 +1,7 @@
 // Personal messages one after another, plus posts for the WhatsApp group.
 import { S, all, me, byId, memberName } from '../store.js';
 import { html, rs, prettyPhone, waNumber, fmtDate } from '../util.js';
-import { pledgeStatus, openDebts, eventStats } from '../calc.js';
+import { pledgeStatus, eventStats } from '../calc.js';
 import { icon, waIcon, on, toast, empty, bar } from '../ui.js';
 import { activeEvent, eventBar, wireEventBar, chooseEvent } from './home.js';
 import { compose, openWhatsApp, markSent, unmarkSent, wasSent, pendingFor, shareText, copyText, donationListText, financeText, groupReminderText } from '../messages.js';
@@ -24,12 +24,8 @@ export const QUEUES = {
     title: 'පොරොන්දු මතක් කිරීම්', icon: 'gift', hint: 'පොරොන්දු වූ මුදල තවම නොදුන් අයට',
     items: ev => pledgeStatus(S.db, ev.id).filter(p => p.due > 0).map(p => ({ kind: 'pledge', refId: p.pledge.id, memberId: p.pledge.memberId, eventId: ev.id, owner: byId('members', p.pledge.memberId)?.collectorId, amount: p.due, note: rs(p.due) })),
   },
-  behalfRemind: {
-    title: 'පියවීම මතක් කිරීම්', icon: 'swap', hint: 'තමන් වෙනුවෙන් ගෙවූ මුදල තවම නොදුන් අයට', anyEvent: true,
-    items: () => openDebts(S.db).map(d => ({ kind: 'behalfRemind', refId: d.id, memberId: d.memberId, eventId: d.eventId, owner: d.collectorId, donation: d, note: `${rs(d.amount)} → ${memberName(d.payerId)}` })),
-  },
 };
-const sentFor = d => (d.payerId ? [['behalfAsk', d.memberId], ['behalfPay', d.payerId]] : [['thanks', d.memberId]]).filter(([k, m]) => wasSent(k, d.id, m)).map(([kind, memberId]) => ({ kind, memberId, donation: d, eventId: d.eventId }));
+const sentFor = d => (wasSent('thanks', d.id, d.memberId) ? [{ kind: 'thanks', memberId: d.memberId, donation: d, eventId: d.eventId }] : []);
 const split = list => ({
   todo: list.filter(x => !wasSent(x.kind, x.refId, x.memberId) && waNumber(byId('members', x.memberId)?.phone)),
   noPhone: list.filter(x => !waNumber(byId('members', x.memberId)?.phone)),
@@ -49,6 +45,8 @@ export function messagesHome() {
         <a class="row" href="#/group?e=${ev.id}&t=remind">${icon('calendar', 'lead-i')}<span class="grow"><b>පින්කම මතක් කිරීම</b><small>සියලු දෙනාට පොදු පණිවිඩය</small></span>${icon('next')}</a>
         <a class="row" href="#/group?e=${ev.id}&t=list">${icon('people', 'lead-i')}<span class="grow"><b>මුදල් දුන් අයගේ ලැයිස්තුව</b><small>නම් සහ මුදල්</small></span>${icon('next')}</a>
         <a class="row" href="#/group?e=${ev.id}&t=finance">${icon('report', 'lead-i')}<span class="grow"><b>ගිණුම් සාරාංශය</b><small>එකතුව, වියදම, ඉතිරිය, ප්‍රදේශ අනුව පවුල් ගණන</small></span>${icon('next')}</a>
+        <a class="row" href="#/report?e=${ev.id}">${icon('sheet', 'lead-i')}<span class="grow"><b>PDF වාර්තාව</b><small>නම්, ගම්, මුදල්, ද්‍රව්‍ය සහ බඩු මලු — වර්ණවත් PDF</small></span>${icon('next')}</a>
+        <a class="row" href="#/photos?e=${ev.id}">${icon('camera', 'lead-i')}<span class="grow"><b>ඡායාරූප එකතුව</b><small>Camera / gallery ඡායාරූප collage එකක් ලෙස</small></span>${icon('next')}</a>
       </div>`,
     mount: el => wireEventBar(el, render),
   };
@@ -70,7 +68,7 @@ export function queue({ kind, e }) {
   const nm = next && byId('members', next.memberId);
   return {
     title: q.title, back: 'messages',
-    body: html`${q.anyEvent ? '' : eventBar(ev)}
+    body: html`${eventBar(ev)}
       ${hasMine ? html`<div class="seg"><button type="button" data-mine="1" class="${mine ? 'on' : ''}">මගේ අය</button><button type="button" data-mine="" class="${mine ? '' : 'on'}">සියලු දෙනා</button></div>` : ''}
       ${total ? html`<div class="progress"><span><b>${sent.length}</b> / ${total} යවා ඇත</span>${bar(sent.length, total)}</div>` : ''}
       ${next ? html`<section class="card nextcard"><small>ඊළඟ කෙනා</small><h2>${nm.name}</h2><p class="sub">${[prettyPhone(nm.phone), next.note].filter(Boolean).join(' · ')}</p>

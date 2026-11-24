@@ -1,9 +1,11 @@
-import { S, all, me, isAdmin, isDemo, byId, put, setting, memberName, userName, dismissRejected } from '../store.js';
+import { S, all, me, treasurerId, isAdmin, isDemo, byId, put, setting, memberName, userName, dismissRejected } from '../store.js';
 import { html, raw, rs, today, daysTo, inDays, fmtDateLong } from '../util.js';
-import { currentEvent, eventStats, fundLedger, holdings, pledgeStatus, openDebts } from '../calc.js';
-import { nextPoya, poyaId, moonSvg } from '../poya.js';
+import { currentEvent, eventStats, fundLedger, holdings, pledgeStatus } from '../calc.js';
+import { nextPoya, poyaId } from '../poya.js';
+import { boMoonSvg } from '../art.js';
 import { icon, on, toast, stat, confirmBox, sheet } from '../ui.js';
 import { pendingFor, wasSent, orgName } from '../messages.js';
+import { cashList } from './money.js';
 import { statusChip, go, render } from '../main.js';
 
 /* The event people are working on; remembered per phone so switching sticks for the visit. */
@@ -41,23 +43,18 @@ export function home() {
   const missing = np && !all('events').some(e => e.date === np[0] && e.type === 'poya') ? np : null;
   const st = ev && eventStats(S.db, ev.id);
   const row = ev && fundLedger(S.db, ev.fund).find(r => r.event.id === ev.id);
-  const h = holdings(S.db, S.users.map(u => u.id));
-  const mine = h[me().id] || 0;
+  const h = holdings(S.db, S.users.map(u => u.id), treasurerId());
   const d = ev ? daysTo(ev.date) : null;
   const remindFrom = Number(setting('remindDays', '4'));
   const todo = [];
 
   if (S.rejected.length) todo.push(['alert', 'bad', `සටහන් ${S.rejected.length}ක් පිළිගත්තේ නැහැ`, 'බලන්න', 'rejected']);
-  const inbox = all('handovers').filter(x => x.status === 'pending' && (x.toId === me().id || (isAdmin() && x.toId === 'BANK')));
-  if (inbox.length) todo.push(['hand', 'warn', `මුදල් භාරගැනීම් ${inbox.length}ක් තහවුරු කරන්න`, rs(inbox.reduce((s, x) => s + Number(x.amount), 0)), 'go:cash']);
   if (ev && ev.status !== 'closed' && d >= 0 && d <= remindFrom) {
     const r = toRemind(ev, true).length || toRemind(ev, false).length;
     if (r) todo.push(['chat', 'warn', 'මතක් කිරීම් යවන්න', `${r} දෙනෙකුට`, `go:queue?kind=remind&e=${ev.id}`]);
   }
   const thanks = all('donations').filter(x => x.collectorId === me().id && byId('events', x.eventId)?.status !== 'closed').flatMap(pendingFor).length;
   if (thanks) todo.push(['promise', '', 'ස්තුති පණිවිඩ යවන්න', `${thanks}ක් ඉතිරියි`, 'go:queue?kind=thanks']);
-  const debts = openDebts(S.db);
-  if (debts.length) todo.push(['swap', '', 'වෙනුවෙන් ගෙවූ මුදල් තවම පියවා නැත', `${debts.length}ක් · ${rs(debts.reduce((s, x) => s + Number(x.amount), 0))}`, 'go:behalf']);
   const due = ev ? pledgeStatus(S.db, ev.id).filter(p => p.due > 0) : [];
   if (due.length) todo.push(['gift', '', 'පොරොන්දු මුදල් ලැබීමට ඇත', `${due.length} දෙනෙක් · ${rs(due.reduce((s, p) => s + p.due, 0))}`, 'go:pledges']);
   const cand = isAdmin() ? all('families').filter(f => f.status === 'candidate').length : 0;
@@ -70,9 +67,9 @@ export function home() {
       <section class="hero">
         <div class="hero-top"><span class="org">${orgName()}</span>${statusChip()}</div>
         ${ev ? html`<button type="button" class="hero-main" data-evbar>
-          ${raw(moonSvg(np ? daysTo(np[0]) : 0))}
+          ${raw(boMoonSvg(np ? daysTo(np[0]) : 0))}
           <span class="grow"><small>${d >= 0 ? 'මීළඟ පින්කම' : 'පසුගිය පින්කම'}</small><b>${ev.title}</b><span>${fmtDateLong(ev.date)}</span><em>${inDays(d)}</em></span>
-        </button>` : html`<div class="hero-main">${raw(moonSvg(np ? daysTo(np[0]) : 0))}<span class="grow"><small>මීළඟ පොහොය</small><b>${np?.[1] || ''}</b><span>${np ? fmtDateLong(np[0]) : ''}</span></span></div>`}
+        </button>` : html`<div class="hero-main">${raw(boMoonSvg(np ? daysTo(np[0]) : 0))}<span class="grow"><small>මීළඟ පොහොය</small><b>${np?.[1] || ''}</b><span>${np ? fmtDateLong(np[0]) : ''}</span></span></div>`}
         ${ev && ev.status !== 'closed' ? html`<a class="btn gold huge" href="#/donate">${icon('plus')} මුදලක් සටහන් කරන්න</a>` : ''}
         ${missing ? html`<button type="button" class="btn ${ev ? 'ghost-light' : 'gold huge'}" data-addpoya>${isAdmin() ? `${missing[1]} එක් කරන්න` : `${missing[1]} තවම එක් කර නැත`}</button>` : ''}
       </section>
@@ -90,7 +87,9 @@ export function home() {
         </div>
         <p class="sub">${st.donors.size} දෙනෙක් දායක වී ඇත${st.goods.length ? ` · භාණ්ඩ පරිත්‍යාග ${st.goods.length}` : ''} · සාමාජිකයන් ${all('members').filter(m => !m.inactive).length}</p></section>` : ''}
 
-      <section class="card mine"><div class="grow"><small>දැනට මා අත ඇති මුදල</small><b class="${mine < 0 ? 'neg' : ''}">${rs(mine)}</b></div><a class="btn ghost" href="#/cash">${icon('hand')} භාර දෙන්න</a></section>
+      ${ev ? html`<div class="two"><a class="btn ghost" href="#/report?e=${ev.id}">${icon('report')} PDF වාර්තාව</a><a class="btn ghost" href="#/photos?e=${ev.id}">${icon('camera')} ඡායාරූප</a></div>` : ''}
+
+      <section><h2 class="sec">අත ඇති මුදල්</h2>${cashList(h)}</section>
       ${isDemo() ? html`<p class="sub center">මේ අත්හදා බැලීමකි — මෙහි ඇති නම් සහ මුදල් සැබෑ නොවේ.</p>` : ''}`,
     mount(el) {
       wireEventBar(el, render);
@@ -112,6 +111,5 @@ export function home() {
 function describe(r) {
   const p = r.patch || {};
   if (r.table === 'donations') return `${p.memberId ? memberName(p.memberId) : 'පරිත්‍යාගය'} ${p.amount ? rs(p.amount) : ''}`;
-  if (r.table === 'handovers') return `${p.fromId ? userName(p.fromId) : 'භාරදීම'} ${p.amount ? rs(p.amount) : ''}`;
   return p.name || p.title || 'සටහන';
 }

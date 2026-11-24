@@ -1,4 +1,4 @@
-# පින් පොත
+# දනට පින් ඇත්තෝ — පින් පොත
 
 පින්කම් සඳහා මුදල් එකතු කිරීම, ගිණුම්, WhatsApp පණිවිඩ සහ බෙදාහැරීම කළමනාකරණය කරන සිංහල web app එකක්. සම්පූර්ණයෙන්ම නොමිලේ.
 
@@ -11,7 +11,7 @@
 |---|---|---|
 | App (PWA, build නැත, libraries නැත) | `app/` → GitHub Pages | 0 |
 | Backend (Google Apps Script) | `backend/Code.gs` | 0 |
-| දත්ත | සංසදයේ Google Sheet එක | 0 |
+| දත්ත | සංවිධානයේ Google Sheet එක | 0 |
 | WhatsApp | `wa.me` links + දුරකථනයේ share | 0 |
 
 දුරකථනය → (offline පෝලිම) → Apps Script → Google Sheet. දුරකථනය යවන්නේ වෙනස් වූ fields පමණි; server එක අවසර සහ නිවැරදි බව පරීක්ෂා කර, ඉතිහාසය ලියා, අනිත් දුරකථනවලට වෙනස්කම් දෙයි.
