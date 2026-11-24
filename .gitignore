@@ -6,3 +6,6 @@ pinpotha-backup-*.json
 samples/
 *.mp4
 .vercel/
+.vercel
+.env*
+*recovery-codes*
