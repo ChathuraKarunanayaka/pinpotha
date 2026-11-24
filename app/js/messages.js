@@ -1,5 +1,5 @@
 // Sinhala message wording and the WhatsApp / share plumbing.
-import { S, setting, memberName, byId, put, all, isDemo } from './store.js';
+import { S, collectors, setting, memberName, byId, put, all, isDemo } from './store.js';
 import { money, fmtDate, daysTo, waNumber, inDays } from './util.js';
 import { eventStats, fundLedger, areaCounts, plannedParcels } from './calc.js';
 
@@ -138,7 +138,7 @@ export function financeText(ev) {
 }
 
 export function groupReminderText(ev) {
-  const who = S.users.filter(u => u.active).map(u => `• ${u.name}${u.phone ? ` — ${u.phone}` : ''}`).join('\n');
+  const who = collectors().map(u => `• ${u.name}${u.phone ? ` — ${u.phone}` : ''}`).join('\n');
   const bank = setting('bankDetails');
   return fill(template('remindGroup'), vars(ev, { එකතුකරන්නන්: who + (bank ? `\n\n🏦 ${bank}` : '') }));
 }

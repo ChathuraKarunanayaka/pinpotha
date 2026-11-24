@@ -1,12 +1,13 @@
 // Menu, yearly report, change history, settings, committee accounts and help.
-import { S, all, me, treasurerId, activeUsers, byId, put, isAdmin, isDemo, api, setting, setUsers, setToken, logout, disconnect, memberName, userName, sync } from '../store.js';
-import { html, rs, fmtStamp, fmtDate } from '../util.js';
+import { S, all, me, joinLink, myLink, byId, put, isAdmin, isDemo, api, setting, setUsers, setToken, logout, disconnect, memberName, userName, sync } from '../store.js';
+import { html, rs, fmtStamp, fmtDate, waNumber } from '../util.js';
 import { FUNDS, fundLedger, fundBalance } from '../calc.js';
-import { icon, on, toast, formSheet, confirmBox, empty, stat, sheet } from '../ui.js';
-import { TEMPLATES, template, copyText, orgName } from '../messages.js';
+import { icon, waIcon, on, toast, formSheet, confirmBox, empty, stat, sheet } from '../ui.js';
+import { TEMPLATES, template, copyText, orgName, openWhatsApp, shareText } from '../messages.js';
 import { drawCard, CARD_TEXT, CARD_VERSE } from '../card.js';
 import { render } from '../main.js';
 
+export const ROLE = { admin: 'ප්‍රධාන පාලක', coordinator: 'Coordinator', collector: 'මුදල් එකතු කරන්නා' };
 export function more() {
   const groups = [
     ['මුදල්', [['cash', 'cash', 'අත ඇති මුදල්'], ['expenses', 'bill', 'වියදම්'], ['pledges', 'gift', 'පොරොන්දු']]],
@@ -18,7 +19,7 @@ export function more() {
     title: 'තවත්',
     body: html`${groups.map(([g, items]) => html`<h2 class="sec">${g}</h2><div class="tiles">${items.map(([r, ic, l]) => html`<a class="tile" href="#/${r}">${icon(ic)}<span>${l}</span></a>`)}</div>`)}
       ${S.session.sheetUrl ? html`<a class="btn ghost" target="_blank" rel="noopener noreferrer" href="${S.session.sheetUrl}">${icon('sheet')} Google Sheet එක බලන්න</a>` : ''}
-      <p class="sub center">${me().name} · ${isAdmin() ? 'ප්‍රධාන' : 'මුදල් එකතු කරන්නා'}</p>`,
+      <p class="sub center">${me().name} · ${ROLE[me().role]}</p>`,
   };
 }
 
@@ -104,14 +105,15 @@ export function settings() {
         <button type="button" class="row" data-org>${icon('lotus', 'lead-i')}<span class="grow"><b>${orgName()}</b><small>නම, බැංකු විස්තර, මතක් කිරීමේ දින, ස්තුති පත</small></span>${icon('next')}</button></div>
         <h2 class="sec">පණිවිඩ වචන</h2><div class="list card0">${Object.entries(TEMPLATES).map(([k, [l]]) => html`<button type="button" class="row" data-tpl="${k}">${icon('chat', 'lead-i')}<span class="grow"><b>${l}</b>${setting('tpl_' + k) ? html`<small>වෙනස් කර ඇත</small>` : ''}</span>${icon('next')}</button>`)}</div>
         <button type="button" class="btn ghost" data-card>${icon('lotus')} ස්තුති පත බලන්න</button>
-        ${isDemo() ? '' : html`<button type="button" class="btn ghost" data-invite>${icon('share')} කමිටුවට ආරාධනා link එක</button>`}` : ''}
+        <a class="btn ghost" href="#/users">${icon('people')} කමිටුව සහ ආරාධනා</a>
+        <label class="toggle card0"><input type="checkbox" data-collects ${S.users.find(u => u.id === me().id)?.collects ? 'checked' : ''}><span class="sw"></span><span><b>මමත් මුදල් එකතු කරනවා</b><small>On කළ විට ඔබේ නමත් එකතු කරන අය අතර පෙනේ</small></span></label>` : ''}
       <h2 class="sec">ගිණුම</h2>
-      <div class="stack">${isDemo() ? html`<button type="button" class="btn ghost" data-exit>අත්හදා බැලීම අවසන් කරන්න</button>` : html`<button type="button" class="btn ghost" data-pin>${icon('lock')} PIN අංකය වෙනස් කරන්න</button><button type="button" class="btn ghost" data-backup>${icon('sheet')} උපස්ථයක් (backup) බාගන්න</button><button type="button" class="btn link danger" data-out>ඉවත් වන්න</button>`}</div>`,
+      <div class="stack">${isDemo() ? html`<button type="button" class="btn ghost" data-exit>අත්හදා බැලීම අවසන් කරන්න</button>` : html`<button type="button" class="btn ghost" data-mylink>${icon('phone')} මගේ වෙනත් දුරකථනයකට</button><button type="button" class="btn ghost" data-pin>${icon('lock')} PIN අංකය වෙනස් කරන්න</button>${A ? html`<button type="button" class="btn ghost" data-backup>${icon('sheet')} උපස්ථයක් (backup) බාගන්න</button>` : ''}<button type="button" class="btn link danger" data-out>ඉවත් වන්න</button>`}</div>`,
     mount(el) {
       on(el, 'click', '[data-size]', b => { document.documentElement.dataset.size = b.dataset.size; try { localStorage.setItem('size', b.dataset.size); } catch { /* private window */ } render({ keepScroll: true }); });
       on(el, 'click', '[data-org]', () => formSheet({
-        title: 'සංවිධානය', value: { orgName: orgName(), bankDetails: setting('bankDetails'), remindDays: setting('remindDays', '4'), cardAmount: setting('cardAmount', '1') === '1', notifyEmails: setting('notifyEmails'), cardText: setting('cardText', CARD_TEXT), cardVerse: setting('cardVerse', CARD_VERSE), treasurerId: treasurerId() },
-        fields: [{ key: 'orgName', label: 'සංවිධානයේ නම', required: true }, { key: 'treasurerId', label: 'භාණ්ඩාගාරික (ඉතිරි මුදල් තබා ගන්නා අය)', type: 'select', required: true, options: activeUsers().map(u => [u.id, u.name]) }, { key: 'bankDetails', label: 'බැංකු ගිණුම් විස්තර', type: 'textarea', hint: 'Group මතක් කිරීමේ පණිවිඩයට එක් වේ.' }, { key: 'remindDays', label: 'මතක් කිරීම් දින කීයකට පෙරද?', type: 'number', required: true }, { key: 'cardAmount', label: 'ස්තුති පතේ මුදල පෙන්වන්න', type: 'toggle' }, { key: 'cardText', label: 'ස්තුති පතේ පින් අනුමෝදනාව', type: 'textarea', rows: 4, required: true }, { key: 'cardVerse', label: 'ස්තුති පතේ දහම් වදන', required: true }, { key: 'notifyEmails', label: 'කමිටුවට ඊමේල් මතක් කිරීම්', hint: 'ඊමේල් ලිපින, කොමාවෙන් වෙන් කර. පොහොයට දින 4කට පෙර ඉබේම යයි.' }],
+        title: 'සංවිධානය', value: { orgName: orgName(), bankDetails: setting('bankDetails'), remindDays: setting('remindDays', '4'), cardAmount: setting('cardAmount', '1') === '1', notifyEmails: setting('notifyEmails'), cardText: setting('cardText', CARD_TEXT), cardVerse: setting('cardVerse', CARD_VERSE) },
+        fields: [{ key: 'orgName', label: 'සංවිධානයේ නම', required: true }, { key: 'bankDetails', label: 'බැංකු ගිණුම් විස්තර', type: 'textarea', hint: 'Group මතක් කිරීමේ පණිවිඩයට එක් වේ.' }, { key: 'remindDays', label: 'මතක් කිරීම් දින කීයකට පෙරද?', type: 'number', required: true }, { key: 'cardAmount', label: 'ස්තුති පතේ මුදල පෙන්වන්න', type: 'toggle' }, { key: 'cardText', label: 'ස්තුති පතේ පින් අනුමෝදනාව', type: 'textarea', rows: 4, required: true }, { key: 'cardVerse', label: 'ස්තුති පතේ දහම් වදන', required: true }, { key: 'notifyEmails', label: 'කමිටුවට ඊමේල් මතක් කිරීම්', hint: 'ඊමේල් ලිපින, කොමාවෙන් වෙන් කර. පොහොයට දින 4කට පෙර ඉබේම යයි.' }],
         onSave: async v => { for (const [k, x] of Object.entries(v)) { const s = k === 'cardAmount' ? (x ? '1' : '0') : String(x); if (s !== setting(k, k === 'cardAmount' ? '1' : '')) await put('settings', k, { value: s }); } toast('සුරැකුණා'); },
       }));
       on(el, 'click', '[data-tpl]', b => {
@@ -130,10 +132,16 @@ export function settings() {
         const c = await drawCard(d);
         sheet({ title: 'ස්තුති පත', body: html`<img class="certificate" src="${c.url}" alt="ස්තුති පතේ ආදර්ශය">` });
       });
-      on(el, 'click', '[data-invite]', async () => {
-        const link = `${location.origin}${location.pathname}#setup=${S.conn.id}.${S.conn.key}`;
-        if (!(await confirmBox('ආරාධනා link එක', 'මෙය කමිටුවේ අයට පමණක් පුද්ගලිකව යවන්න. Group එකට දමන්න එපා.', { ok: 'Copy කරන්න', cancel: 'වසන්න' }))) return;
-        toast((await copyText(link)) ? 'Copy කළා' : 'බැරි වුණා', {});
+      on(el, 'change', '[data-collects]', async b => {
+        try {
+          if (isDemo()) await setUsers(S.users.map(u => (u.id === me().id ? { ...u, collects: b.checked } : u)));
+          else await setUsers((await api('userSave', { user: { id: me().id, collects: b.checked } })).users);
+          toast(b.checked ? 'On කළා. ඔබටත් මුදල් එකතු කළ හැකියි.' : 'Off කළා.');
+        } catch (e) { b.checked = !b.checked; toast(e.message, { bad: true }); }
+      });
+      on(el, 'click', '[data-mylink]', async () => {
+        if (!(await confirmBox('මගේ වෙනත් දුරකථනයකට', 'මෙම link එක ඔබේම අනෙක් දුරකථනයේ (හෝ iPhone Home Screen app එකේ) විවෘත කර ඔබේ PIN එක දමන්න. වෙන කාටවත් යවන්න එපා.', { ok: 'Copy කරන්න', cancel: 'වසන්න' }))) return;
+        toast((await copyText(myLink())) ? 'Copy කළා' : 'බැරි වුණා');
       });
       on(el, 'click', '[data-pin]', () => formSheet({
         title: 'PIN අංකය වෙනස් කරන්න',
@@ -151,28 +159,68 @@ export function settings() {
 }
 
 /* ---------------- committee accounts ---------------- */
-export function users() {
-  if (!isAdmin()) return null;
-  const edit = (u = {}) => formSheet({
-    title: u.id ? u.name : 'කමිටුවට අයෙක්', value: { role: 'collector', active: true, ...u },
-    fields: [{ key: 'name', label: 'නම', required: true }, { key: 'phone', label: 'දුරකථනය', type: 'tel', hint: 'Group මතක් කිරීමේ පණිවිඩයේ පෙන්වයි.' },
-      { key: 'role', label: 'භූමිකාව', type: 'choice', required: true, options: [['collector', 'මුදල් එකතු කරන්නා'], ['admin', 'ප්‍රධාන (භාණ්ඩාගාරික)']] },
-      { key: 'pin', label: u.id ? 'අලුත් PIN' : 'PIN අංකය (ඉලක්කම් 4)', type: 'tel', required: !u.id, hint: u.id ? 'PIN අමතක වූ විට පමණක් පුරවන්න.' : 'මෙය ඔවුන්ට කියන්න. පසුව ඔවුන්ට වෙනස් කළ හැක.', check: v => (!v || /^\d{4}$/.test(v) ? '' : 'ඉලක්කම් 4ක් විය යුතුයි.') },
-      ...(u.id ? [{ key: 'active', label: 'සක්‍රියයි (app එකට ඇතුළු විය හැක)', type: 'toggle' }] : [])],
-    onSave: async v => {
-      if (isDemo()) { await setUsers(u.id ? S.users.map(x => (x.id === u.id ? { ...x, ...v } : x)) : [...S.users, { id: 'demo-u' + Date.now(), ...v, active: true }]); return; }
-      const r = await api('userSave', { user: { id: u.id, ...v, active: u.id ? v.active : true } });
-      await setUsers(r.users, r.token);
-      toast('සුරැකුණා');
+const copyOf = async link => toast((await copyText(link)) ? 'Copy කළා' : 'බැරි වුණා');
+/** Show a freshly made personal link. It cannot be shown again later, only renewed. */
+function showInvite(u, token) {
+  const link = joinLink(token), text = `තෙරුවන් සරණයි ${u.name},\n\n${orgName()} app එකට ඔබව එක් කර ඇත. පහත link එක ඔබා ඔබේ රහස් PIN අංකයක් සාදාගන්න.\n\n${link}\n\nමෙය ඔබට පමණයි. දින 7ක් ඇතුළත, එක් වරක් පමණක් භාවිතා කළ හැක. වෙන කාටවත් යවන්න එපා. 🙏`;
+  return sheet({
+    title: 'ආරාධනා link එක',
+    body: html`<p class="lead"><b>${u.name}</b> සඳහා link එක සූදානම්. මෙය <b>ඔවුන්ට පමණක්</b> යවන්න.</p>
+      <div class="stack">${waNumber(u.phone) ? html`<button type="button" class="btn wa huge" data-wa>${waIcon}<span><b>${u.name}ට WhatsApp කරන්න</b></span></button>` : html`<button type="button" class="btn wa huge" data-sh>${icon('share')} යවන්න</button>`}<button type="button" class="btn ghost" data-cp>${icon('copy')} Link එක copy කරන්න</button></div>
+      <p class="banner">${icon('lock')}<span>දින 7ක් වලංගුයි. එක් වරක් පමණක් වැඩ කරයි. Group එකට දමන්න එපා.</span></p>`,
+    mount: b => {
+      on(b, 'click', '[data-wa]', () => openWhatsApp(u.phone, text));
+      on(b, 'click', '[data-sh]', async () => { if ((await shareText(text)) === 'copied') toast('Copy කළා. WhatsApp එකේ paste කරන්න.'); });
+      on(b, 'click', '[data-cp]', () => copyOf(link));
     },
   });
+}
+const uStatus = u => (u.role === 'admin' ? (u.collects ? 'මුදල් එකතු කරයි' : 'මුදල් එකතු නොකරයි') : u.active ? 'එක් වී ඇත ✓' : u.pending ? 'ආරාධනා කළා, තවම එක් වී නැත' : u.joined ? 'නවතා ඇත' : 'ආරාධනාව කල් ඉකුත් වී ඇත');
+export function users() {
+  if (!isAdmin()) return null;
+  const roleField = { key: 'role', label: 'භූමිකාව', type: 'choice', required: true, options: [['collector', 'මුදල් එකතු කරන්නා'], ['coordinator', 'Coordinator']], hint: 'Coordinator එක් අයෙක් පමණයි. අලුත් අයෙක් පත් කළ විට පරණ අය “මුදල් එකතු කරන්නා” බවට පත් වේ.' };
+  const invite = async v => {
+    if (isDemo()) { toast('අත්හදා බැලීමේදී ආරාධනා යැවිය නොහැක.'); return true; }
+    const r = await api('invite', { user: v });
+    await setUsers(r.users);
+    setTimeout(() => showInvite(r.users.find(u => u.id === r.id), r.invite), 350);
+    return true;
+  };
+  const add = () => formSheet({
+    title: 'අයෙක්ට ආරාධනා කරන්න', saveLabel: 'ආරාධනා link එක සාදන්න', value: { role: 'collector' },
+    fields: [{ key: 'name', label: 'නම', required: true }, { key: 'phone', label: 'WhatsApp අංකය', type: 'tel', hint: 'Link එක කෙලින්ම යැවීමට, සහ group මතක් කිරීමේ පෙන්වීමට.' }, roleField],
+    onSave: async v => { await invite(v); },
+  });
+  const edit = async u => {
+    if (u.role === 'admin') return formSheet({
+      title: 'ඔබේ විස්තර', value: u,
+      fields: [{ key: 'name', label: 'නම', required: true }, { key: 'phone', label: 'දුරකථනය', type: 'tel' }, { key: 'collects', label: 'මමත් මුදල් එකතු කරනවා', type: 'toggle' }],
+      onSave: async v => save(u, v),
+    });
+    const act = await sheet({
+      title: u.name,
+      body: html`<p class="lead">${ROLE[u.role]} · ${uStatus(u)}</p><div class="stack"><button type="button" class="btn ghost" data-a="edit">${icon('edit')} නම, දුරකථනය, භූමිකාව</button><button type="button" class="btn ghost" data-a="link">${icon('share')} ${u.joined ? 'PIN අමතකද / අලුත් දුරකථනයක්ද? නව link එකක්' : 'නව ආරාධනා link එකක්'}</button>${u.active || u.pending ? html`<button type="button" class="btn link danger" data-a="stop">${icon('lock')} ${u.active ? 'ප්‍රවේශය නවත්වන්න' : 'ආරාධනාව අවලංගු කරන්න'}</button>` : u.joined ? html`<button type="button" class="btn ghost" data-a="start">${icon('check')} නැවත සක්‍රිය කරන්න</button>` : ''}</div>`,
+      mount: (b, close) => on(b, 'click', '[data-a]', x => close(x.dataset.a)),
+    });
+    if (act === 'edit') return formSheet({ title: u.name, value: u, fields: [{ key: 'name', label: 'නම', required: true }, { key: 'phone', label: 'දුරකථනය', type: 'tel' }, roleField], onSave: async v => save(u, v) });
+    if (act === 'link' && (!u.joined || await confirmBox('නව link එකක් සාදන්නද?', `${u.name}ගේ පරණ PIN එක සහ දුරකථනය ඉවත් වේ. නව link එකෙන් නැවත එක් විය යුතුයි. සටහන් මැකෙන්නේ නැහැ.`, { ok: 'ඔව්, සාදන්න' }))) return tryIt(() => invite({ id: u.id, name: u.name, phone: u.phone, role: u.role }));
+    if (act === 'stop' && await confirmBox('නවත්වන්නද?', `${u.name}ට තවදුරටත් app එකට ඇතුළු විය නොහැක. ඔවුන් කළ සටහන් එලෙසම තිබේ.`, { ok: 'නවත්වන්න', danger: true })) return tryIt(() => save(u, { active: false }));
+    if (act === 'start') return tryIt(() => save(u, { active: true }));
+  };
+  const tryIt = async f => { try { await f(); } catch (e) { toast(e.message, { bad: true }); } };
+  const save = async (u, v) => {
+    if (isDemo()) await setUsers(S.users.map(x => (x.id === u.id ? { ...x, ...v } : v.role === 'coordinator' && x.role === 'coordinator' ? { ...x, role: 'collector' } : x)));
+    else await setUsers((await api('userSave', { user: { id: u.id, ...v } })).users);
+    toast('සුරැකුණා');
+  };
+  const order = { admin: 0, coordinator: 1, collector: 2 };
   return {
     title: 'කමිටුව', back: 'more',
-    body: html`<button type="button" class="btn primary huge" data-add>${icon('plus')} අයෙක් එක් කරන්න</button>
-      <div class="list card0">${S.users.map(u => html`<button type="button" class="row ${u.active ? '' : 'dim'}" data-u="${u.id}"><span class="ava">${[...u.name][0]}</span><span class="grow"><b>${u.name}</b><small>${u.role === 'admin' ? 'ප්‍රධාන' : 'මුදල් එකතු කරන්නා'}${u.active ? '' : ' · අක්‍රිය'}</small></span>${icon('next')}</button>`)}</div>
-      <section class="card note"><b>ප්‍රධාන</b>: වියදම්, පින්කම්, පවුල් අනුමත කිරීම, ගිණුම් වැසීම සියල්ල.<br><b>මුදල් එකතු කරන්නා</b>: තමන් එකතු කළ මුදල් සටහන් කිරීම, පණිවිඩ, පවුල් යෝජනා කිරීම, බෙදාහැරීම සලකුණු කිරීම.</section>`,
+    body: html`<button type="button" class="btn primary huge" data-add>${icon('plus')} අයෙක්ට ආරාධනා කරන්න</button>
+      <div class="list card0">${S.users.slice().sort((a, b) => order[a.role] - order[b.role]).map(u => html`<button type="button" class="row ${u.active ? '' : 'dim'} ${u.pending ? 'warn' : ''}" data-u="${u.id}"><span class="ava">${[...u.name][0]}</span><span class="grow"><b>${u.name}</b><small>${ROLE[u.role]} · ${uStatus(u)}</small></span>${icon('next')}</button>`)}</div>
+      <section class="card note"><b>ප්‍රධාන පාලක (ඔබ)</b>: සියල්ල. අය එක් කිරීම, සැකසුම්, පින්කම් සහ ගිණුම් වැසීම ඔබට පමණයි.<br><b>Coordinator</b>: වියදම්, බඩු මල්ල, පවුල්, බෙදාහැරීම, කාර්යයන්.<br><b>මුදල් එකතු කරන්නා</b>: මුදල් සටහන්, සාමාජිකයන්, පණිවිඩ, PDF, ඡායාරූප.</section>`,
     mount(el) {
-      on(el, 'click', '[data-add]', () => edit());
+      on(el, 'click', '[data-add]', add);
       on(el, 'click', '[data-u]', b => edit(S.users.find(u => u.id === b.dataset.u)));
     },
   };
@@ -190,7 +238,7 @@ export function help() {
     ['පොහොයට පෙර මතක් කිරීම්', 'දින 4කට පෙර සිට මුල් පිටුවේ පෙනේ. "පණිවිඩ → මතක් කිරීම්" ගොස් එකින් එක යවන්න. දැනටමත් මුදල් දුන් අය ලැයිස්තුවේ නැහැ.'],
     ['මාසික PDF එක group එකට', '"තවත් → PDF වාර්තාව". එක් එක් නම, ගම සහ මුදල බලා ✓ කරන්න. වැරදි නම් ඒ මත ඔබා වෙනස් කරන්න හෝ මකන්න. සියල්ල ✓ වූ පසු "PDF සාදන්න" → බලා → "WhatsApp group එකට යවන්න".'],
     ['ඡායාරූප එකතුවක් (collage)', '"තවත් → ඡායාරූප" → Camera හෝ Gallery. හොඳ ඒවා තෝරන්න → මෝස්තරය සහ වර්ණය තෝරන්න → යවන්න. ඡායාරූප දුරකථනයෙන් පිටතට යන්නේ ඔබ යැවූ විට පමණි.'],
-    ['දුරකථනයේ app එකක් ලෙස දැමීම', 'Android: Chrome ⋮ → "Add to Home screen". iPhone: Safari Share → "Add to Home Screen", පසුව ආරාධනා link එක එහි paste කරන්න.'],
+    ['දුරකථනයේ app එකක් ලෙස දැමීම', 'Android: Chrome ⋮ → "Add to Home screen". iPhone: Safari Share → "Add to Home Screen", පසුව “සැකසුම් → මගේ වෙනත් දුරකථනයකට” link එක copy කර එහි paste කරන්න.'],
   ];
   return { title: 'උදව්', back: 'more', body: html`${QA.map(([q, a], i) => html`<details class="qa" ${i ? '' : 'open'}><summary>${q}</summary><p>${a}</p></details>`)}` };
 }

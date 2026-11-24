@@ -3,6 +3,8 @@
 
 export const FUNDS = { poya: 'මාසික පොහොය අරමුදල', annual: 'සංවත්සර අරමුදල' };
 export const BANK = 'BANK';
+/** The common fund: what is left once an event's accounts are closed. */
+export const POOL = 'POOL';
 
 const cents = n => Math.round(Number(n || 0) * 100);
 const live = rows => (rows || []).filter(r => !r.deleted);
@@ -41,14 +43,14 @@ export function fundBalance(db, fund) {
 /**
  * Cash each person (or the bank) is holding, worked out from what they collected and paid.
  * Open events: money stays with whoever collected it. Once an event's accounts are closed the
- * rest is taken to be with the treasurer, so nobody has to record passing money on.
+ * rest belongs to the common fund, so nobody has to record passing money on.
  */
-export function holdings(db, userIds, treasurerId) {
+export function holdings(db, userIds) {
   const h = {};
-  [...userIds, BANK].forEach(id => { h[id] = 0; });
+  [...userIds, POOL, BANK].forEach(id => { h[id] = 0; });
   const add = (id, c) => { h[id] = (h[id] || 0) + c; };
   const evs = Object.fromEntries(live(db.events).map(e => [e.id, e]));
-  const at = (id, ev) => (id !== BANK && treasurerId && (!ev || ev.status === 'closed') ? treasurerId : id);
+  const at = (id, ev) => (id !== BANK && (!ev || ev.status === 'closed') ? POOL : id);
   live(db.openings).forEach(o => add(at(o.holder), cents(o.amount)));
   live(db.donations).filter(d => isMoney(d) && evs[d.eventId]).forEach(d => add(d.kind === 'bank' ? BANK : at(d.collectorId, evs[d.eventId]), cents(d.amount)));
   live(db.expenses).filter(x => evs[x.eventId]).forEach(x => add(at(x.paidBy, evs[x.eventId]), -cents(x.amount)));

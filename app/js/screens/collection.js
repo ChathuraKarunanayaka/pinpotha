@@ -1,5 +1,5 @@
 // Who has given, who has not, and one donation in detail.
-import { S, all, me, byId, put, remove, isAdmin, memberName, userName, activeUsers } from '../store.js';
+import { S, all, me, byId, put, remove, isAdmin, memberName, userName, collectors } from '../store.js';
 import { search } from '../search.js';
 import { html, rs, byName, fmtDateLong, prettyPhone, today } from '../util.js';
 import { eventStats } from '../calc.js';
@@ -70,6 +70,8 @@ export function donationDetail({ id }) {
     },
   };
 }
+/** Collectors, plus whoever already has this record even if they have since left. */
+const withCurrent = id => [...collectors().map(u => [u.id, u.name]), ...(collectors().some(u => u.id === id) ? [] : [[id, userName(id)]])];
 const goodsOn = v => v.kind === 'goods';
 function editDonation(d) {
   return formSheet({
@@ -81,7 +83,7 @@ function editDonation(d) {
       { key: 'goods', label: 'භාණ්ඩය', required: true, when: goodsOn },
       { key: 'value', label: 'දළ වටිනාකම', type: 'money', when: goodsOn },
       { key: 'date', label: 'දිනය', type: 'date', required: true },
-      ...(isAdmin() ? [{ key: 'collectorId', label: 'එකතු කළේ', type: 'select', required: true, options: activeUsers().map(u => [u.id, u.name]) }] : []),
+      ...(isAdmin() ? [{ key: 'collectorId', label: 'එකතු කළේ', type: 'select', required: true, options: withCurrent(d.collectorId) }] : []),
       { key: 'note', label: 'සටහන' },
     ],
     onSave: async v => {

@@ -11,11 +11,12 @@ export function seed(day) {
   const old = { id: 'demo-old', type: 'poya', title: 'පසුගිය පොහොය', date: shift(-24), fund: 'poya', status: 'closed', parcels: 20, note: '' };
   const ann = { id: 'demo-ann', type: 'annual', title: 'සංවත්සර ධර්ම දේශනාව', date: shift(75), fund: 'annual', status: 'open', parcels: '', note: '' };
   const users = [
-    { id: 'demo-u1', name: 'ප්‍රධාන (ඔබ)', role: 'admin', phone: '', active: true },
-    { id: 'demo-u2', name: 'සමන්', role: 'collector', phone: '', active: true },
-    { id: 'demo-u3', name: 'කුමාරි', role: 'collector', phone: '', active: true },
+    { id: 'demo-u1', name: 'ප්‍රධාන පාලක (ඔබ)', role: 'admin', phone: '', active: true, collects: false, joined: true },
+    { id: 'demo-u2', name: 'සමන්', role: 'coordinator', phone: '', active: true, collects: true, joined: true },
+    { id: 'demo-u3', name: 'කුමාරි', role: 'collector', phone: '', active: true, collects: true, joined: true },
+    { id: 'demo-u4', name: 'රුවන්', role: 'collector', phone: '', active: true, collects: true, joined: true },
   ];
-  const U = users.map(u => u.id);
+  const U = users.slice(1).map(u => u.id);
   // 070 000 00xx: deliberately not real numbers
   const members = NAMES.map((name, i) => ({ id: `demo-m${i}`, name, phone: i === 9 ? '' : `07000000${String(i).padStart(2, '0')}`, area: AREAS[i % 4], usual: i % 4 === 0 ? 1000 : '', collectorId: U[i % 3], noRemind: false, anon: i === 5, inactive: false, note: '' }));
   const amt = [1000, 500, 2000, 1500, 1000, 5000, 500, 1000];
@@ -37,7 +38,7 @@ export function seed(day) {
       settings: [],
       events: [old, cur, ann],
       members, donations, families,
-      openings: [{ id: 'demo-op', fund: 'poya', holder: U[0], amount: 8400, date: shift(-60), note: 'පොතේ ඉතිරිය' }],
+      openings: [{ id: 'demo-op', fund: 'poya', holder: 'POOL', amount: 8400, date: shift(-60), note: 'පොතේ ඉතිරිය' }],
       pledges: [{ id: 'demo-p1', eventId: cur.id, memberId: 'demo-m2', amount: 2000, cancelled: false, note: '' }, { id: 'demo-p2', eventId: cur.id, memberId: 'demo-m5', amount: 5000, cancelled: false, note: '' }],
       expenses: [
         { id: 'demo-e1', eventId: old.id, taskId: '', category: 'බඩු', title: 'මලු 20ක් සඳහා වියළි ආහාර', amount: 24500, paidBy: U[0], shop: 'නගරයේ කඩය', billNo: '1042', date: shift(-25), note: '' },

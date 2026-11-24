@@ -1,7 +1,7 @@
 // Reusable interface pieces: icons, toast, dialogs, forms, member picker.
 import { search } from './search.js';
 import { html, raw, norm, byName, prettyPhone, today, rs } from './util.js';
-import { all, put, me, byId, memberName } from './store.js';
+import { all, put, me, iCollect, byId, memberName } from './store.js';
 
 /* ---- icons (24px stroke) ---- */
 const P = {
@@ -156,7 +156,7 @@ export function memberForm(m = {}, users = []) {
       { key: 'phone', label: 'WhatsApp අංකය', type: 'tel', placeholder: '077 123 4567' },
       { key: 'area', label: 'ගම / ප්‍රදේශය', list: areas() },
       { key: 'usual', label: 'සාමාන්‍යයෙන් දෙන මුදල', type: 'money' },
-      { key: 'collectorId', label: 'මතක් කිරීම භාර අය', type: 'select', options: users.filter(u => u.active).map(u => [u.id, u.name]), value: m.id ? '' : me().id },
+      { key: 'collectorId', label: 'මතක් කිරීම භාර අය', type: 'select', options: users.filter(u => u.active && (u.role !== 'admin' || u.collects)).map(u => [u.id, u.name]), value: m.id || !iCollect() ? '' : me().id },
       { key: 'anon', label: 'Group වාර්තාවල නම නොපෙන්වන්න', type: 'toggle' },
       { key: 'noRemind', label: 'මතක් කිරීම් යවන්න එපා', type: 'toggle' },
       ...(m.id ? [{ key: 'inactive', label: 'දැන් සහභාගී නොවේ (ලැයිස්තුවෙන් සඟවන්න)', type: 'toggle' }] : []),

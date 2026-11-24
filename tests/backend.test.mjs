@@ -9,9 +9,13 @@ function world() {
   const key = be.key();
   const admin = be.call({ key, action: 'hello' }).users[0];
   const a = be.call({ key, action: 'login', userId: admin.id, pin: '1234' });
-  be.call({ key, action: 'userSave', token: a.token, user: { name: 'නිමල්', role: 'collector', pin: '5678' } });
-  const coll = be.call({ key, action: 'hello' }).users[1];
-  const c = be.call({ key, action: 'login', userId: coll.id, pin: '5678' });
+  const recruit = (name, role, pin) => {
+    const inv = be.call({ key, token: a.token, action: 'invite', user: { name, role } });
+    const c = be.call({ action: 'join', invite: inv.invite, pin });
+    assert.equal(c.ok, true, c.error);
+    return c;
+  };
+  const c = recruit('නිමල්', 'collector', '5678'), coll = c.user;
   let n = 0;
   const op = (token, table, id, patch) => {
     const r = be.call({ key, token, action: 'sync', since: 0, ops: [{ opId: 'o' + n++, table, id, patch }] });
@@ -26,7 +30,9 @@ function world() {
   ok(A('members', 'mem2', { name: 'කමලා' }));
   const don = (id, p) => ({ eventId: 'ev1', memberId: 'mem1', kind: 'cash', amount: 1000, collectorId: coll.id, date: '2026-12-20', ...p });
   const pull = () => be.call({ key, token: a.token, action: 'sync', since: 0, ops: [] });
-  return { be, key, a, c, admin, coll, A, C, ok, no, don, pull };
+  const collects = on => be.call({ key, token: a.token, action: 'userSave', user: { id: admin.id, collects: on } });
+  collects(true);
+  return { be, key, recruit, collects, a, c, admin, coll, A, C, ok, no, don, pull };
 }
 
 test('wrong key, wrong PIN, lock-out, tampered token', () => {
@@ -46,14 +52,101 @@ test('PINs never reach clients; deactivated users and changed PINs lose access',
   assert.equal(r.ok, true);
   assert.equal(be.call({ key, token: c.token, action: 'sync' }).code, 'auth');
   assert.equal(be.call({ key, token: r.token, action: 'sync' }).ok, true);
-  be.call({ key, token: a.token, action: 'userSave', user: { id: coll.id, name: 'නිමල්', role: 'collector', active: false } });
+  be.call({ key, token: a.token, action: 'userSave', user: { id: coll.id, active: false } });
   assert.equal(be.call({ key, token: r.token, action: 'sync' }).code, 'auth');
 });
 
-test('last admin cannot be removed; collectors cannot manage users', () => {
-  const { be, key, a, c, admin } = world();
-  assert.equal(be.call({ key, token: a.token, action: 'userSave', user: { id: admin.id, name: 'x', role: 'collector' } }).code, 'invalid');
-  assert.equal(be.call({ key, token: c.token, action: 'userSave', user: { name: 'y', role: 'admin', pin: '1111' } }).code, 'denied');
+test('only the owner manages people, and the owner cannot be demoted or switched off', () => {
+  const { be, key, a, c, coll, admin } = world();
+  assert.equal(be.call({ key, token: c.token, action: 'invite', user: { name: 'y' } }).code, 'denied');
+  assert.equal(be.call({ key, token: c.token, action: 'userSave', user: { id: coll.id, role: 'admin' } }).code, 'denied');
+  const r = be.call({ key, token: a.token, action: 'userSave', user: { id: admin.id, role: 'collector', active: false } });
+  assert.deepEqual([r.users[0].role, r.users[0].active], ['admin', true]);
+  assert.equal(be.call({ key, token: a.token, action: 'userSave', user: { id: coll.id, role: 'admin' } }).users[1].role, 'collector');
+  assert.equal(be.call({ key, token: a.token, action: 'invite', user: { id: admin.id } }).code, 'invalid');
+});
+
+test('personal invite: works without the device key, once, and only for its own person', () => {
+  const { be, key, a } = world();
+  const inv = be.call({ key, token: a.token, action: 'invite', user: { name: 'කුමාරි', phone: '0712345678' } });
+  const pend = inv.users.find(u => u.id === inv.id);
+  assert.deepEqual([pend.active, pend.pending, pend.joined], [false, true, false]);
+  assert.ok(!be.call({ key, action: 'hello' }).users.some(u => u.id === inv.id));
+  assert.ok(!/inviteHash|pinHash/.test(JSON.stringify(inv)));
+  assert.equal(be.call({ action: 'inviteInfo', invite: inv.invite }).name, 'කුමාරි');
+  assert.equal(be.call({ action: 'inviteInfo', invite: 'f'.repeat(32) }).code, 'invite');
+  assert.equal(be.call({ action: 'inviteInfo' }).code, 'invite');
+  assert.equal(be.call({ action: 'sync', token: a.token }).code, 'key');
+  assert.equal(be.call({ action: 'join', invite: inv.invite, pin: '12' }).code, 'invalid');
+  const j = be.call({ action: 'join', invite: inv.invite, name: ' කුමාරි  සිල්වා ', pin: '2468' });
+  assert.equal(j.key, key);
+  assert.deepEqual([j.user.name, j.user.role, j.user.active, j.user.pending], ['කුමාරි සිල්වා', 'collector', true, false]);
+  assert.equal(be.call({ key, token: j.token, action: 'sync' }).ok, true);
+  assert.equal(be.call({ action: 'join', invite: inv.invite, pin: '1357' }).code, 'invite');
+  assert.equal(be.call({ key, action: 'login', userId: inv.id, pin: '2468' }).ok, true);
+});
+
+test('a joiner cannot raise their own role, and names stay unique', () => {
+  const { be, key, a } = world();
+  const inv = be.call({ key, token: a.token, action: 'invite', user: { name: 'ක', role: 'admin' } });
+  const j = be.call({ action: 'join', invite: inv.invite, pin: '2468', role: 'admin', user: { role: 'admin' } });
+  assert.equal(j.user.role, 'collector');
+  assert.equal(be.call({ key, token: a.token, action: 'invite', user: { name: 'නිමල්' } }).code, 'invalid');
+});
+
+test('expired and cancelled invites stop working; renewing ends the old PIN and phone', () => {
+  const { be, key, a, c, coll } = world();
+  const inv = be.call({ key, token: a.token, action: 'invite', user: { name: 'ක' } });
+  be.run('Date.__real = Date.now; Date.now = () => Date.__real() + 8 * 864e5');
+  assert.equal(be.call({ action: 'join', invite: inv.invite, pin: '2468' }).code, 'invite');
+  be.run('Date.now = Date.__real');
+  const again = be.call({ key, token: a.token, action: 'invite', user: { id: inv.id } });
+  assert.equal(be.call({ action: 'inviteInfo', invite: inv.invite }).code, 'invite');
+  be.call({ key, token: a.token, action: 'userSave', user: { id: inv.id, active: false } });
+  assert.equal(be.call({ action: 'join', invite: again.invite, pin: '2468' }).code, 'invite');
+  assert.equal(be.call({ key, token: a.token, action: 'userSave', user: { id: inv.id, active: true } }).code, 'invalid');
+
+  const renew = be.call({ key, token: a.token, action: 'invite', user: { id: coll.id } });
+  assert.equal(be.call({ key, token: c.token, action: 'sync' }).code, 'auth');
+  assert.equal(be.call({ key, action: 'login', userId: coll.id, pin: '5678' }).code, 'pin');
+  const back = be.call({ action: 'join', invite: renew.invite, pin: '8642' });
+  assert.equal(back.user.id, coll.id);
+});
+
+test('one coordinator: can run expenses, parcels, families and delivery, but not people, settings, funds or closing', () => {
+  const { be, key, recruit, A, C, ok, no, a } = world();
+  const k = recruit('සමන්', 'coordinator', '1470');
+  let n = 0;
+  const K = (table, id, patch) => be.call({ key, token: k.token, action: 'sync', since: 0, ops: [{ opId: 'k' + n++, table, id, patch }] }).results[0];
+  ok(K('expenses', 'exp1', { eventId: 'ev1', title: 'හාල්', amount: 100, paidBy: 'POOL', date: '2026-12-20' }));
+  ok(K('parcelItems', 'pi1', { eventId: 'ev1', name: 'හාල්', qty: 5 }));
+  ok(K('families', 'fam1', { name: 'x', status: 'approved' }));
+  ok(K('deliveries', 'dl1', { eventId: 'ev1', familyId: 'fam1', status: 'planned' }));
+  ok(K('teams', 'tm1', { eventId: 'ev1', name: 't' }));
+  ok(K('events', 'ev1', { parcels: 20 }));
+  no(K('events', 'ev1', { status: 'closed' }));
+  no(K('events', 'ev9', { type: 'poya', title: 'x', date: '2027-01-22', fund: 'poya', status: 'open' }));
+  no(K('settings', 'orgName', { value: 'x' }));
+  no(K('openings', 'op1', { fund: 'poya', holder: 'POOL', amount: 5 }));
+  no(K('transfers', 'tr1', { fromFund: 'poya', toFund: 'annual', amount: 5, date: '2026-12-20' }));
+  no(K('members', 'mem1', { deleted: true }));
+  no(C('expenses', 'exp2', { eventId: 'ev1', title: 'x', amount: 5, paidBy: 'POOL' }));
+  assert.equal(be.call({ key, token: k.token, action: 'invite', user: { name: 'z' } }).code, 'denied');
+  recruit('කුමාරි', 'coordinator', '2580');
+  assert.equal(be.call({ key, token: a.token, action: 'sync' }).users.filter(u => u.role === 'coordinator').length, 1);
+  no(K('expenses', 'exp3', { eventId: 'ev1', title: 'x', amount: 5, paidBy: 'POOL' }));
+  ok(A('events', 'ev1', { status: 'closed' }));
+});
+
+test('the owner takes money only while that setting is on', () => {
+  const { collects, A, ok, no, don, admin, coll } = world();
+  collects(false);
+  no(A('donations', 'don1', don('', { collectorId: admin.id })));
+  ok(A('donations', 'don1', don('', { collectorId: coll.id })));
+  collects(true);
+  ok(A('donations', 'don2', don('', { collectorId: admin.id })));
+  collects(false);
+  ok(A('donations', 'don2', { amount: 5 }));
 });
 
 test('text survives the sheet: leading zeros, dates, formulas, apostrophes', () => {
@@ -167,7 +260,7 @@ test('sheet summary equals the app maths, and cash held equals fund balances', (
   assert.equal(led[1].balance, 3650.65);
   const sh = be.sheet('සාරාංශය').cells.slice(1).filter(r => r[0] === 'මාසික පොහොය අරමුදල');
   assert.deepEqual(sh.map(r => r.slice(3, 8)), led.map(l => [l.brought, l.income, l.transfer, l.spent, l.balance]));
-  const held = Object.values(holdings(db, [admin.id, coll.id], admin.id)).reduce((s, x) => s + x, 0);
+  const held = Object.values(holdings(db, [admin.id, coll.id])).reduce((s, x) => s + x, 0);
   assert.equal(Math.round(held * 100), Math.round((fundBalance(db, 'poya') + fundBalance(db, 'annual')) * 100));
   assert.equal(be.sheet('පරිත්‍යාග').getLastRow(), 6);
 });

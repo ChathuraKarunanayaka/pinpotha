@@ -23,14 +23,15 @@ const SCHEMA = {
   tasks:      { eventId: ['s', 'පින්කම'], title: ['s', 'කාර්යය'], owner: ['s', 'භාර'], budget: ['n', 'අයවැය'], due: ['s', 'දිනය'], status: ['s', 'තත්ත්වය'], note: ['s', 'සටහන'] },
   messages:   { eventId: ['s', 'පින්කම'], memberId: ['s', 'සාමාජිකයා'], kind: ['s', 'වර්ගය'], refId: ['s', 'අදාළ'], at: ['s', 'වේලාව'] },
 };
-const USER_FIELDS = { name: ['s', 'නම'], role: ['s', 'භූමිකාව'], phone: ['s', 'දුරකථනය'], active: ['b', 'සක්‍රිය'], pinHash: ['s', '-'], salt: ['s', '-'], tv: ['n', '-'] };
+const USER_FIELDS = { name: ['s', 'නම'], role: ['s', 'භූමිකාව'], phone: ['s', 'දුරකථනය'], active: ['b', 'සක්‍රිය'], collects: ['b', 'එකතු කරයි'], inviteHash: ['s', '-'], inviteExp: ['n', '-'], pinHash: ['s', '-'], salt: ['s', '-'], tv: ['n', '-'] };
 const META = { deleted: ['b', 'මකා ඇත'], rev: ['n', 'rev'], updatedAt: ['s', 'වෙනස් කළේ'], updatedBy: ['s', 'කවුද'] };
 const AUDIT_HEADS = ['at', 'userId', 'userName', 'table', 'recId', 'action', 'before', 'after'];
 
 const FUNDS = { poya: 'මාසික පොහොය අරමුදල', annual: 'සංවත්සර අරමුදල' };
 const MONEY_TABLES = ['events', 'members', 'donations', 'expenses', 'openings', 'transfers', 'pledges'];
 const MAX_OPS = 400, MAX_TEXT = 2000, MAX_AMOUNT = 100000000;
-const TOKEN_DAYS = 365, MAX_PIN_TRIES = 5;
+const TOKEN_DAYS = 365, MAX_PIN_TRIES = 5, INVITE_DAYS = 7;
+const APP_URL = 'https://chathurakarunanayaka.github.io/pinpotha/';
 
 /* ------------------------------------------------------------------ HTTP */
 
@@ -53,19 +54,24 @@ function handle_(req) {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('inviteKey');
   if (!key) fail_('setup', 'පද්ධතිය තවම සකසා නැත.');
-  if (!safeEq_(String(req.key || ''), key)) fail_('key', 'ආරාධනා link එක වලංගු නැත. ප්‍රධාන අයගෙන් අලුත් link එකක් ගන්න.');
+  // A personal invite is its own secret; everything else needs the device key as well as a PIN session.
+  const invited = req.action === 'inviteInfo' || req.action === 'join';
+  if (!invited && !safeEq_(String(req.key || ''), key)) fail_('key', 'ආරාධනා link එක වලංගු නැත. ප්‍රධාන අයගෙන් අලුත් link එකක් ගන්න.');
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) fail_('busy', 'පද්ධතිය කාර්යබහුලයි. මොහොතකින් නැවත උත්සාහ කරන්න.');
   try {
     const db = new Db_();
     let out;
-    if (req.action === 'hello') out = { users: db.users().filter(u => u.active).map(u => ({ id: u.id, name: u.name })), org: db.setting('orgName') };
+    if (req.action === 'inviteInfo') { const u = invitee_(db, req.invite); out = { name: u.name, role: u.role, org: db.setting('orgName') }; }
+    else if (req.action === 'join') out = join_(db, req, key);
+    else if (req.action === 'hello') out = { users: db.users().filter(u => u.active && u.pinHash).map(u => ({ id: u.id, name: u.name })), org: db.setting('orgName') };
     else if (req.action === 'login') out = login_(db, req);
     else {
       const user = auth_(db, req.token);
       if (req.action === 'sync') out = sync_(db, user, req);
       else if (req.action === 'history') out = { rows: history_(req.limit) };
+      else if (req.action === 'invite') out = invite_(db, user, req.user || {});
       else if (req.action === 'userSave') out = userSave_(db, user, req.user || {});
       else if (req.action === 'changePin') out = changePin_(db, user, req);
       else fail_('action', 'නොදන්නා ඉල්ලීමකි.');
@@ -125,28 +131,83 @@ function login_(db, req) {
   return { token: newToken_(u), user: publicUser_(u), sheetUrl: u.role === 'admin' ? SpreadsheetApp.getActive().getUrl() : '' };
 }
 
-function publicUser_(u) { return { id: u.id, name: u.name, role: u.role, phone: u.phone, active: u.active }; }
+function publicUser_(u) {
+  return { id: u.id, name: u.name, role: u.role, phone: u.phone, active: u.active, collects: u.role === 'admin' ? u.collects === true : true, pending: !!u.inviteHash && Number(u.inviteExp) > Date.now(), joined: !!u.pinHash };
+}
+function ownerOnly_(me) { if (me.role !== 'admin') fail_('denied', 'මෙය කළ හැක්කේ ප්‍රධාන පාලකට පමණි.'); }
+function cleanName_(v) {
+  const name = String(v || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!name) fail_('invalid', 'නම අවශ්‍යයි.');
+  return name;
+}
+/** Only one coordinator at a time: appointing a new one turns the previous one back into a collector. */
+function setRole_(db, me, rec, role) {
+  rec.role = role === 'coordinator' ? 'coordinator' : 'collector';
+  if (rec.role !== 'coordinator') return;
+  db.users().slice().forEach(u => {
+    if (u.id === rec.id || u.role !== 'coordinator') return;
+    db.save('users', Object.assign({}, u, { role: 'collector' }), me);
+    db.audit(me, 'users', u.id, 'update', { name: u.name, role: 'coordinator' }, { name: u.name, role: 'collector' });
+  });
+}
 
-function userSave_(db, me, p) {
-  if (me.role !== 'admin') fail_('denied', 'මෙය කළ හැක්කේ ප්‍රධාන අයට පමණි.');
+/** Owner creates (or renews) a personal, single-use link. Renewing also ends that person's old sessions and PIN. */
+function invite_(db, me, p) {
+  ownerOnly_(me);
   const found = p.id ? db.load('users').byId[p.id] : null;
   if (p.id && !found) fail_('invalid', 'පරිශීලකයා හමු නොවුණි.');
-  const old = found ? Object.assign({}, found) : null;
-  const name = String(p.name || '').trim().slice(0, 80);
-  if (!name) fail_('invalid', 'නම අවශ්‍යයි.');
-  const role = p.role === 'admin' ? 'admin' : 'collector';
-  const active = p.active !== false;
-  if (old && old.role === 'admin' && old.active && (role !== 'admin' || !active) && db.users().filter(u => u.role === 'admin' && u.active).length < 2)
-    fail_('invalid', 'අවම වශයෙන් එක් ප්‍රධාන අයෙක් සිටිය යුතුයි.');
-  const rec = Object.assign({}, old || { id: 'u' + uid_(), tv: 1 }, { name: name, role: role, active: active, phone: String(p.phone || '').slice(0, 30) });
-  if (p.pin) { setPin_(rec, p.pin); PropertiesService.getScriptProperties().deleteProperty('try_' + rec.id); }
-  else if (!old) fail_('invalid', 'PIN අංකය අවශ්‍යයි.');
-  if (old && old.active && !active) rec.tv = (rec.tv || 1) + 1;
+  if (found && found.role === 'admin') fail_('invalid', 'ප්‍රධාන පාලකට ආරාධනා link එකක් අවශ්‍ය නැත.');
+  const token = uid_();
+  const rec = Object.assign({ id: 'u' + uid_(), tv: 0, role: 'collector', phone: '', collects: true, deleted: false }, found || {});
+  rec.name = cleanName_(p.name || rec.name);
+  if (db.users().some(u => u.id !== rec.id && u.name === rec.name)) fail_('invalid', 'මේ නමින් කෙනෙක් දැනටමත් ඇත. නම වෙනස් කරන්න.');
+  if (p.phone !== undefined) rec.phone = String(p.phone || '').slice(0, 30);
+  setRole_(db, me, rec, p.role || rec.role);
+  Object.assign(rec, { active: false, pinHash: '', salt: '', tv: Number(rec.tv || 0) + 1, inviteHash: hmac_('inv|' + token), inviteExp: Date.now() + INVITE_DAYS * 864e5 });
   db.save('users', rec, me);
-  db.audit(me, 'users', rec.id, old ? 'update' : 'create', old ? { name: old.name, role: old.role, active: old.active } : {}, { name: name, role: role, active: active, pinChanged: !!p.pin });
+  db.audit(me, 'users', rec.id, found ? 'update' : 'create', {}, { name: rec.name, role: rec.role, invited: true });
   db.commit();
-  // Changing your own PIN invalidates your token, so hand back a fresh one.
-  return { users: db.users().map(publicUser_), token: rec.id === me.id ? newToken_(rec) : undefined };
+  return { users: db.users().map(publicUser_), invite: token, id: rec.id };
+}
+function invitee_(db, token) {
+  const h = hmac_('inv|' + String(token || ''));
+  const u = db.users().find(x => x.inviteHash && safeEq_(x.inviteHash, h));
+  if (!u || Number(u.inviteExp) < Date.now()) fail_('invite', 'මෙම ආරාධනා link එක භාවිතා කර ඇත, නැතිනම් කල් ඉකුත් වී ඇත. ප්‍රධාන පාලකගෙන් අලුත් link එකක් ගන්න.');
+  return u;
+}
+function join_(db, req, key) {
+  const u = invitee_(db, req.invite);
+  const rec = Object.assign({}, u, { name: cleanName_(req.name || u.name), active: true, inviteHash: '', inviteExp: '' });
+  if (db.users().some(x => x.id !== rec.id && x.name === rec.name)) fail_('invalid', 'මේ නමින් කෙනෙක් දැනටමත් ඇත. නම වෙනස් කරන්න.');
+  setPin_(rec, req.pin);
+  PropertiesService.getScriptProperties().deleteProperty('try_' + rec.id);
+  db.save('users', rec, rec);
+  db.audit(rec, 'users', rec.id, 'update', { name: u.name }, { name: rec.name, role: rec.role, joined: true });
+  db.commit();
+  return { key: key, token: newToken_(rec), user: publicUser_(rec), sheetUrl: '' };
+}
+
+function userSave_(db, me, p) {
+  ownerOnly_(me);
+  const found = db.load('users').byId[p.id];
+  if (!found) fail_('invalid', 'පරිශීලකයා හමු නොවුණි.');
+  const old = Object.assign({}, found), rec = Object.assign({}, found);
+  rec.name = cleanName_(p.name || old.name);
+  if (db.users().some(u => u.id !== rec.id && u.name === rec.name)) fail_('invalid', 'මේ නමින් කෙනෙක් දැනටමත් ඇත.');
+  if (p.phone !== undefined) rec.phone = String(p.phone || '').slice(0, 30);
+  if (old.role === 'admin') {
+    if (p.collects !== undefined) rec.collects = p.collects === true;
+  } else {
+    if (p.role) setRole_(db, me, rec, p.role);
+    if (p.active === true && !old.pinHash) fail_('invalid', 'මෙම අය තවම එක් වී නැත. ආරාධනා link එකක් යවන්න.');
+    if (p.active !== undefined) rec.active = p.active === true;
+    if (p.active === false) { rec.tv = Number(old.tv || 0) + 1; rec.inviteHash = ''; rec.inviteExp = ''; }
+  }
+  db.save('users', rec, me);
+  const view = u => ({ name: u.name, role: u.role, active: u.active, collects: u.collects });
+  db.audit(me, 'users', rec.id, 'update', view(old), view(rec));
+  db.commit();
+  return { users: db.users().map(publicUser_) };
 }
 
 function setPin_(rec, pin) {
@@ -248,7 +309,8 @@ function only_(changed, allowed) { return Object.keys(changed).every(k => allowe
 
 function authorize_(db, user, table, before, after, changed) {
   const admin = user.role === 'admin';
-  const deny = m => fail_('denied', m || 'මෙය කළ හැක්කේ ප්‍රධාන අයට පමණි.');
+  const manage = admin || user.role === 'coordinator';
+  const deny = m => fail_('denied', m || 'මෙය කළ හැක්කේ ප්‍රධාන පාලකට පමණි.');
 
   // A closed event is frozen for everyone until an admin re-opens it.
   if (['donations', 'expenses', 'pledges', 'deliveries', 'parcelItems', 'teams', 'tasks'].indexOf(table) >= 0) {
@@ -258,6 +320,9 @@ function authorize_(db, user, table, before, after, changed) {
       deny('මෙම පින්කමේ ගිණුම් වසා ඇත. වෙනස් කිරීමට නම් ප්‍රධාන අයෙක් එය නැවත විවෘත කළ යුතුයි.');
   }
   if (admin) return;
+  // The coordinator runs the practical side; people, settings, events, funds and closing stay with the owner.
+  if (manage && ['expenses', 'parcelItems', 'tasks', 'teams', 'deliveries', 'families'].indexOf(table) >= 0) return;
+  if (manage && table === 'events' && before && only_(changed, ['parcels'])) return;
 
   switch (table) {
     case 'messages': case 'pledges': return;
@@ -270,7 +335,7 @@ function authorize_(db, user, table, before, after, changed) {
       if (before.collectorId !== user.id || after.collectorId !== user.id) deny('මෙය සටහන් කළ අයට හෝ ප්‍රධාන අයට පමණක් වෙනස් කළ හැක.');
       return;
     case 'families':
-      if (!before ? after.status !== 'candidate' : (changed.status !== undefined || changed.deleted !== undefined)) deny('පවුල් අනුමත කරන්නේ ප්‍රධාන අයයි.');
+      if (!before ? after.status !== 'candidate' : (changed.status !== undefined || changed.deleted !== undefined)) deny('පවුල් අනුමත කරන්නේ ප්‍රධාන පාලක හෝ coordinator.');
       return;
     case 'deliveries':
       if (!before || !only_(changed, ['status', 'doneAt', 'note'])) deny();
@@ -316,7 +381,10 @@ function validate_(db, table, before, after, changed) {
       req('events', 'eventId', 'පින්කම හමු නොවුණි.');
       req('members', 'memberId', 'සාමාජිකයා හමු නොවුණි.');
       if (['cash', 'bank', 'goods'].indexOf(after.kind) < 0) bad('පරිත්‍යාග වර්ගය වැරදියි.');
-      if (!user(after.collectorId)) bad('එකතු කළ අය තෝරන්න.');
+      if (!before || changed.collectorId !== undefined) {
+        const c = db.users().find(u => u.id === after.collectorId);
+        if (!c || (c.role === 'admin' && !c.collects)) bad('මුදල් එකතු කළ අය තෝරන්න.');
+      }
       if (after.kind === 'goods') { if (!after.goods) bad('භාණ්ඩය සඳහන් කරන්න.'); } else amount();
       if (after.payerId) {
         if (after.payerId === after.memberId) bad('වෙනුවෙන් ගෙවූ අය වෙනත් කෙනෙක් විය යුතුයි.');
@@ -330,14 +398,14 @@ function validate_(db, table, before, after, changed) {
       break;
     case 'expenses':
       req('events', 'eventId', 'පින්කම හමු නොවුණි.');
-      if (after.paidBy !== 'BANK' && !user(after.paidBy)) bad('ගෙවූ අය තෝරන්න.');
+      if (after.paidBy !== 'BANK' && after.paidBy !== 'POOL' && !user(after.paidBy)) bad('ගෙවූ අය තෝරන්න.');
       if (after.taskId) req('tasks', 'taskId', 'කාර්යය හමු නොවුණි.');
       if (!after.title) bad('වියදම මොකටද කියා ලියන්න.');
       amount();
       break;
     case 'openings':
       if (!FUNDS[after.fund]) bad('අරමුදල තෝරන්න.');
-      if (after.holder !== 'BANK' && !user(after.holder)) bad('මුදල් තිබෙන්නේ කා ළඟදැයි තෝරන්න.');
+      if (after.holder !== 'BANK' && after.holder !== 'POOL' && !user(after.holder)) bad('මුදල් තිබෙන්නේ කා ළඟදැයි තෝරන්න.');
       amount();
       break;
     case 'transfers':
@@ -497,7 +565,7 @@ function summaryRows_(db) {
 }
 
 function refreshReports_(db) {
-  const name = t => { const m = db.load(t).byId; return id => id === 'BANK' ? 'බැංකුව' : (m[id] ? m[id].name || m[id].title : ''); };
+  const name = t => { const m = db.load(t).byId; return id => id === 'BANK' ? 'බැංකුව' : id === 'POOL' ? 'පොදු අරමුදල' : (m[id] ? m[id].name || m[id].title : ''); };
   const mem = name('members'), usr = name('users'), ev = name('events');
   const live = t => db.load(t).rows.filter(r => !r.deleted);
   const byDate = (a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
@@ -526,12 +594,12 @@ function report_(ss, title, heads, rows, types) {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('පින් පොත')
     .addItem('1. මුල් සැකසුම', 'menuSetup')
-    .addItem('2. ආරාධනා link එක සාදන්න', 'menuInvite')
+    .addItem('2. මගේ (ප්‍රධාන පාලකගේ) link එක', 'menuInvite')
     .addSeparator()
-    .addItem('ප්‍රධාන අයෙකුගේ PIN අලුත් කරන්න', 'menuResetPin')
+    .addItem('ප්‍රධාන පාලකගේ PIN අලුත් කරන්න', 'menuResetPin')
     .addItem('Sheet යාවත්කාලීන කරන්න', 'menuUpgrade')
     .addItem('අතින් කළ වෙනස්කම් app එකට යවන්න', 'menuResync')
-    .addItem('ආරාධනා link එක අලුත් කරන්න (පරණ එක අවලංගු වේ)', 'menuRotateKey')
+    .addItem('හදිසි: සියලු දුරකථන ඉවත් කරන්න', 'menuRotateKey')
     .addToUi();
 }
 
@@ -566,7 +634,7 @@ function setup_(adminName, pin) {
   ensureSheets_();
   const db = new Db_();
   if (!db.users().length) {
-    const rec = { id: 'u' + uid_(), name: adminName, role: 'admin', phone: '', active: true, tv: 0, deleted: false };
+    const rec = { id: 'u' + uid_(), name: adminName, role: 'admin', phone: '', active: true, collects: false, tv: 0, deleted: false };
     setPin_(rec, pin);
     db.save('users', rec, null);
     db.commit();
@@ -584,7 +652,7 @@ function menuSetup() {
   const sh = SpreadsheetApp.getActive().getSheetByName('db_users');
   let name = '', pin = '';
   if (!sh || sh.getLastRow() < 3) {
-    name = ask_(ui, 'ප්‍රධාන අයගේ (ඔබේ) නම:');
+    name = ask_(ui, 'ප්‍රධාන පාලකගේ (ඔබේ) නම:');
     if (!name) return;
     pin = ask_(ui, 'ඉලක්කම් 4ක PIN අංකයක්:');
     if (!/^\d{4,8}$/.test(pin || '')) { ui.alert('PIN එක ඉලක්කම් 4ක් විය යුතුයි. නැවත උත්සාහ කරන්න.'); return; }
@@ -592,7 +660,7 @@ function menuSetup() {
   setup_(name, pin);
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailyReminder').forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('dailyReminder').timeBased().everyDays(1).atHour(7).create();
-  ui.alert('සැකසුම සාර්ථකයි! දැන් "Deploy → New deployment → Web app" කර, ඉන්පසු "2. ආරාධනා link එක සාදන්න" ඔබන්න.');
+  ui.alert('සැකසුම සාර්ථකයි! දැන් "Deploy → New deployment → Web app" කර, ඉන්පසු "2. මගේ link එක" ඔබන්න.');
 }
 
 function menuInvite() {
@@ -602,17 +670,21 @@ function menuInvite() {
   if (!exec) return;
   const m = /\/macros\/s\/([\w-]+)\/exec/.exec(exec);
   if (!m) { ui.alert('URL එක වැරදියි. එය /exec වලින් අවසන් විය යුතුයි.'); return; }
-  const app = ask_(ui, 'App එකේ ලිපිනය (උදා: https://name.github.io/pinpotha/):');
-  if (!app) return;
+  const known = props.getProperty('appUrl') || APP_URL;
+  const typed = ask_(ui, 'App එකේ ලිපිනය. දැනට: ' + known + '\nවෙනසක් නැත්නම් හිස්ව තබා OK ඔබන්න.');
+  if (typed === null) return;
+  if (typed && !/^https:\/\/[\w.-]+(\/[\w./-]*)?$/.test(typed)) { ui.alert('ලිපිනය වැරදියි. එය https:// වලින් ආරම්භ විය යුතුයි.'); return; }
+  const app = typed || known;
+  props.setProperty('appUrl', app);
   const base = app.replace(/[#?].*$/, '').replace(/index\.html$/, '').replace(/\/*$/, '/');
   const link = base + '#setup=' + m[1] + '.' + props.getProperty('inviteKey');
-  const html = HtmlService.createHtmlOutput('<p style="font:16px sans-serif">මෙම link එක කමිටුවේ අයට පමණක් WhatsApp හරහා පුද්ගලිකව යවන්න:</p><textarea style="width:100%;height:130px" onclick="this.select()" readonly>' + link.replace(/[<>&"]/g, '') + '</textarea>').setWidth(460).setHeight(260);
-  ui.showModalDialog(html, 'ආරාධනා link එක');
+  const html = HtmlService.createHtmlOutput('<p style="font:16px sans-serif">මෙය ඔබේ link එකයි. ඔබේ දුරකථනයෙන් විවෘත කරන්න. අන් අයට මෙය යවන්න එපා; ඔවුන්ට app එකේ \'කමිටුව\' තුළින් පෞද්ගලික link යවන්න:</p><textarea style="width:100%;height:130px" onclick="this.select()" readonly>' + link.replace(/[<>&"]/g, '') + '</textarea>').setWidth(460).setHeight(260);
+  ui.showModalDialog(html, 'මගේ link එක');
 }
 
 function menuRotateKey() {
   const ui = SpreadsheetApp.getUi();
-  if (ui.alert('පරණ link එක අවලංගු වේ. සියලු දෙනාට අලුත් link එක යැවිය යුතුයි. කරගෙන යනවාද?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  if (ui.alert('සියලු දුරකථන app එකෙන් ඉවත් වේ. හැමෝටම අලුත් link යැවිය යුතුයි. කරගෙන යනවාද?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   PropertiesService.getScriptProperties().setProperty('inviteKey', uid_());
   menuInvite();
 }

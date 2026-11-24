@@ -1,5 +1,5 @@
 // Boot, routing and the frame around every screen.
-import { S, load, onChange, parseInvite, connect, sync, startAutoSync, isDemo } from './store.js';
+import { S, load, onChange, parseInvite, parseJoin, connect, sync, startAutoSync, isDemo } from './store.js';
 import { html } from './util.js';
 import { icon, on, toast, confirmBox } from './ui.js';
 import * as auth from './screens/auth.js';
@@ -29,9 +29,17 @@ const parse = () => {
   return { name: ROUTES[path] ? path : 'home', params: Object.fromEntries(new URLSearchParams(q || '')) };
 };
 
+/** The personal invite being accepted right now, if any. */
+let joining = null;
+async function startJoin(inv) {
+  if (S.session && !S.conn?.demo && !(await confirmBox('වෙනත් කෙනෙක් ලෙස ඇතුළු වන්නද?', `මෙම දුරකථනයේ දැනට ඇතුළු වී සිටින්නේ ${S.session.user.name}. ඉදිරියට ගියොත් ඒ අය මෙම දුරකථනයෙන් ඉවත් වේ.`, { ok: 'ඉදිරියට', cancel: 'අවලංගු' }))) return render();
+  joining = inv;
+  render();
+}
 let current = null, scrollKey = '', scrolls = {};
 export function render({ keepScroll } = {}) {
-  if (!S.conn) return show(auth.connectScreen());
+  if (joining) return show(auth.joinScreen(joining, () => { joining = null; go('home', true); render(); }));
+  if (!S.conn) return show(auth.connectScreen(startJoin));
   if (!S.session?.token) return show(auth.loginScreen());
   const { name, params } = parse();
   const key = location.hash;
@@ -85,6 +93,7 @@ on(document.body, 'click', '[data-sync]', async () => {
 
 onChange(kind => {
   if (kind === 'status') { const c = document.querySelector('.sync'); if (c) c.outerHTML = String(statusChip()); return; }
+  if (joining) return; // the join screen finishes first
   if (kind === 'session') return render();
   // Never redraw under someone's fingers: an open dialog or a half-typed form stays as it is.
   if (document.querySelector('dialog[open]') || current?.keep || typing()) { pendingDraw = true; return; }
@@ -98,6 +107,12 @@ new MutationObserver(() => { if (pendingDraw && !document.querySelector('dialog[
 /** Invite links look like …/#setup=<id>.<key>; the secret is removed from the address bar straight away. */
 function takeInvite() {
   if (location.hash === '#demo') { window.history.replaceState(null, '', location.pathname); connect({ demo: true }).then(() => render()); return true; }
+  if (location.hash.startsWith('#join=')) {
+    const j = parseJoin(location.hash);
+    window.history.replaceState(null, '', location.pathname + '#/home');
+    if (j) startJoin(j); else { toast('Link එක සම්පූර්ණ නැහැ. මුළු link එකම ඔබන්න.', { bad: true }); render(); }
+    return true;
+  }
   if (!location.hash.startsWith('#setup=')) return false;
   const inv = parseInvite(location.hash);
   window.history.replaceState(null, '', location.pathname + '#/home');

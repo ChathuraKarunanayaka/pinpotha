@@ -35,16 +35,16 @@ test('a gift pays off pledges once, even with two pledges', () => {
 
 test('goods never count as cash; bank gifts sit in the bank; expenses come off whoever paid', () => {
   const db = { events: [{ id: 'e', status: 'open' }], donations: [don('m', 100), don('m', 50, { kind: 'bank' }), don('m', 999, { kind: 'goods' }), don('m', 7, { deleted: true })], expenses: [{ eventId: 'e', amount: 25, paidBy: 'v' }] };
-  assert.deepEqual(holdings(db, ['u', 'v'], 'v'), { u: 100, v: -25, BANK: 50 });
+  assert.deepEqual(holdings(db, ['u', 'v']), { u: 100, v: -25, POOL: 0, BANK: 50 });
 });
 
-test('closing an event moves what is left to the treasurer; bank money and open events stay put', () => {
+test('closing an event moves what is left to the common fund; bank money and open events stay put', () => {
   const db = {
     events: [{ id: 'e', status: 'closed' }, { id: 'f', status: 'open' }],
     donations: [don('m', 100), don('m', 50, { kind: 'bank' }), don('m', 30, { eventId: 'f' })],
     expenses: [{ eventId: 'e', amount: 25, paidBy: 'v' }, { eventId: 'e', amount: 10, paidBy: 'BANK' }], openings: [{ fund: 'poya', holder: 'u', amount: 5 }],
   };
-  assert.deepEqual(holdings(db, ['u', 'v', 't'], 't'), { u: 30, v: 0, t: 80, BANK: 40 });
+  assert.deepEqual(holdings(db, ['u', 'v']), { u: 30, v: 0, POOL: 80, BANK: 40 });
 });
 
 test('parcel totals', () => {

@@ -42,15 +42,20 @@ export const onChange = f => { listeners.add(f); return () => listeners.delete(f
 const emit = kind => listeners.forEach(f => f(kind));
 
 export const me = () => S.session?.user || {};
+/** The owner: the only one who adds people, changes settings and closes accounts. */
 export const isAdmin = () => me().role === 'admin';
+/** Owner or coordinator: expenses, parcel list, families, delivery, tasks. */
+export const canManage = () => isAdmin() || me().role === 'coordinator';
 export const isDemo = () => !!S.conn?.demo;
 export const all = t => (S.db[t] || []).filter(r => !r.deleted);
 export const byId = (t, id) => (S.db[t] || []).find(r => r.id === id);
-export const userName = id => id === 'BANK' ? 'බැංකු ගිණුම' : S.users.find(u => u.id === id)?.name || '—';
+export const userName = id => id === 'BANK' ? 'බැංකු ගිණුම' : id === 'POOL' ? 'පොදු අරමුදල' : S.users.find(u => u.id === id)?.name || '—';
 export const memberName = id => byId('members', id)?.name || '—';
 export const activeUsers = () => S.users.filter(u => u.active);
-/** Who keeps the money once accounts are closed: chosen in Settings, else the first main member. */
-export const treasurerId = () => { const id = setting('treasurerId'), us = activeUsers(); return (us.find(u => u.id === id) || us.find(u => u.role === 'admin') || {}).id; };
+const takesMoney = u => u.role !== 'admin' || u.collects;
+/** People who take money; the owner only when they switched it on. */
+export const collectors = () => activeUsers().filter(takesMoney);
+export const iCollect = () => takesMoney(S.users.find(u => u.id === me().id) || me());
 
 const blank = () => Object.fromEntries(TABLES.map(t => [t, {}]));
 function rebuild() {
@@ -85,8 +90,26 @@ async function persist(...what) {
 /* ---- connection + login ---- */
 /** Accepts the whole invite link or just the part after "#setup=". */
 export function parseInvite(text) {
-  const m = /(?:#setup=)?([\w-]+)\.([0-9a-f]{20,})\s*$/i.exec(String(text || '').trim());
-  return m ? { id: m[1], key: m[2] } : null;
+  const m = /(?:#setup=)?([\w-]+)\.([0-9a-f]{20,})(?:\.(\w+))?\s*$/i.exec(String(text || '').trim());
+  return m ? { id: m[1], key: m[2], userId: m[3] } : null;
+}
+/** A personal, single-use link: …#join=<deployment>.<token> */
+export function parseJoin(text) {
+  const m = /#join=([\w-]+)\.([0-9a-f]{32})\s*$/i.exec(String(text || '').trim());
+  return m ? { id: m[1], invite: m[2] } : null;
+}
+export const joinLink = token => `${location.origin}${location.pathname}#join=${S.conn.id}.${token}`;
+/** For the same person's second phone; still needs their PIN. */
+export const myLink = () => `${location.origin}${location.pathname}#setup=${S.conn.id}.${S.conn.key}.${me().id}`;
+export const inviteInfo = inv => post(inv.id, { action: 'inviteInfo', invite: inv.invite });
+export async function join(inv, name, pin) {
+  if (S.outbox.length) throw new Error('මෙම දුරකථනයේ තවම නොයැවූ සටහන් ඇත. පළමුව ඒවා යවන්න.');
+  const r = await post(inv.id, { action: 'join', invite: inv.invite, name, pin });
+  await wipe();
+  S.conn = { id: inv.id, key: r.key, userId: r.user.id };
+  S.session = { token: r.token, user: r.user, sheetUrl: r.sheetUrl };
+  await persist('conn', 'session', 'data', 'outbox', 'rejected');
+  await sync();
 }
 export async function connect(conn) {
   const other = S.conn && (S.conn.id !== conn.id);
@@ -117,14 +140,15 @@ export async function disconnect() {
   emit('session');
 }
 
-const endpoint = () => S.conn.id === 'local' ? '/api' : `https://script.google.com/macros/s/${S.conn.id}/exec`;
-export async function api(action, body = {}) {
+const endpoint = id => id === 'local' ? '/api' : `https://script.google.com/macros/s/${id}/exec`;
+export const api = (action, body = {}) => post(S.conn.id, { key: S.conn.key, token: S.session?.token, action, ...body });
+async function post(id, body) {
   let res;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 60000);
   try {
     // text/plain keeps this a "simple" request: Apps Script cannot answer CORS preflights.
-    res = await fetch(endpoint(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctl.signal, body: JSON.stringify({ key: S.conn.key, token: S.session?.token, action, ...body }) });
+    res = await fetch(endpoint(id), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctl.signal, body: JSON.stringify(body) });
     res = await res.json();
   } catch (e) {
     throw Object.assign(new Error('අන්තර්ජාල සම්බන්ධතාවය නැත. පසුව ඉබේම යැවේ.'), { code: 'network', cause: e });

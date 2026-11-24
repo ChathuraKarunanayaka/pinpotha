@@ -1,5 +1,5 @@
 // Members (who give) and families (who receive).
-import { S, all, byId, put, remove, isAdmin, memberName, userName } from '../store.js';
+import { S, all, byId, put, remove, isAdmin, canManage, memberName, userName } from '../store.js';
 import { html, rs, norm, byName, prettyPhone, fmtDate, parseMemberLines, waNumber } from '../util.js';
 import { search } from '../search.js';
 import { lastDelivered } from '../calc.js';
@@ -114,13 +114,13 @@ export function familyForm(f = {}) {
       { key: 'urgent', label: 'හදිසි අවශ්‍යතාවකි', type: 'toggle' },
       { key: 'referredBy', label: 'දැනුම් දුන්නේ කවුද?', list: all('members').map(m => m.name) },
       { key: 'map', label: 'Google Maps link', placeholder: 'https://maps.app.goo.gl/…' },
-      ...(isAdmin() ? [{ key: 'status', label: 'අනුමැතිය', type: 'choice', required: true, options: Object.entries(FAM_STATUS), value: f.id ? f.status : 'approved' }] : []),
+      ...(canManage() ? [{ key: 'status', label: 'අනුමැතිය', type: 'choice', required: true, options: Object.entries(FAM_STATUS), value: f.id ? f.status : 'approved' }] : []),
       { key: 'note', label: 'සටහන', type: 'textarea', rows: 2 },
     ],
     onSave: async v => {
       if (!f.id && all('families').some(x => norm(x.name) === norm(v.name) && norm(x.area) === norm(v.area)) && !(await confirmBox('දැනටමත් ඇත', 'මේ නමින් මේ ප්‍රදේශයේ පවුලක් ඇත. එහෙත් එක් කරනවාද?'))) return false;
-      await put('families', f.id, isAdmin() || f.id ? v : { ...v, status: 'candidate' });
-      toast(isAdmin() ? 'සුරැකුණා' : 'යෝජනා කළා. ප්‍රධාන අය අනුමත කළ පසු බෙදාහැරීමට එක් වේ.');
+      await put('families', f.id, canManage() || f.id ? v : { ...v, status: 'candidate' });
+      toast(canManage() ? 'සුරැකුණා' : 'යෝජනා කළා. Coordinator අනුමත කළ පසු බෙදාහැරීමට එක් වේ.');
     },
   });
 }
@@ -135,11 +135,11 @@ export function familyDetail({ id }) {
     body: html`<section class="card detail"><h2>${f.name}</h2><p class="lead">${f.area}${f.urgent ? html` <span class="tag bad">හදිසි</span>` : ''} <span class="tag">${FAM_STATUS[f.status]}</span></p>
       <dl>${[['ලිපිනය', f.address], ['දුරකථනය', prettyPhone(f.phone)], ['සාමාජිකයන්', f.people && `${f.people}${f.children ? ` (ළමුන් ${f.children})` : ''}`], ['තත්ත්වය', f.need], ['දැනුම් දුන්නේ', f.referredBy], ['සටහන', f.note]].filter(x => x[1]).map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>
       <div class="two">${mapLink(f) ? html`<a class="btn ghost" target="_blank" rel="noopener noreferrer" href="${mapLink(f)}">${icon('pin')} සිතියම</a>` : ''}${waNumber(f.phone) ? html`<a class="btn ghost" href="tel:+${waNumber(f.phone)}">${icon('phone')} අමතන්න</a>` : ''}</div></section>
-      ${isAdmin() && f.status === 'candidate' ? html`<button type="button" class="btn primary huge" data-approve>${icon('check')} අනුමත කරන්න</button>` : ''}
+      ${canManage() && f.status === 'candidate' ? html`<button type="button" class="btn primary huge" data-approve>${icon('check')} අනුමත කරන්න</button>` : ''}
       <button type="button" class="btn ghost" data-edit>${icon('edit')} වෙනස් කරන්න</button>
       <h2 class="sec">ලබා දුන් වාර</h2>
       ${hist.length ? html`<div class="list card0">${hist.map(({ d, ev }) => html`<div class="row"><span class="okmark">${d.status === 'done' ? '✓' : '·'}</span><span class="grow"><b>${ev.title}</b><small>${fmtDate(ev.date)}${d.note ? ` · ${d.note}` : ''}</small></span><strong>මලු ${d.parcels || 1}</strong></div>`)}</div>` : html`<p class="sub">තවම නැහැ.</p>`}
-      ${isAdmin() && !hist.length ? html`<button type="button" class="btn link danger" data-del>${icon('trash')} මකන්න</button>` : ''}`,
+      ${canManage() && !hist.length ? html`<button type="button" class="btn link danger" data-del>${icon('trash')} මකන්න</button>` : ''}`,
     mount(el) {
       on(el, 'click', '[data-edit]', () => familyForm(f));
       on(el, 'click', '[data-approve]', async () => { await put('families', id, { status: 'approved' }); toast('අනුමත කළා'); });

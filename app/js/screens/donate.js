@@ -1,5 +1,5 @@
 // The most-used flow: who → how much → done → thank them. One question per page.
-import { S, all, me, byId, put, remove, isAdmin, isDemo, activeUsers, memberName } from '../store.js';
+import { S, all, me, byId, put, remove, isAdmin, isDemo, collectors, iCollect, memberName } from '../store.js';
 import { html, rs, money, today, uid, waNumber, byName } from '../util.js';
 import { eventStats, pledgeStatus } from '../calc.js';
 import { icon, waIcon, on, toast, mountPicker, pickerHtml, pickMember, memberForm, empty } from '../ui.js';
@@ -60,9 +60,9 @@ function amountStep(ev, m) {
           <div class="field"><label for="g">මොනවද දුන්නේ?</label><input id="g" name="goods" placeholder="උදා: හාල් කිලෝ 10" autocomplete="off"></div>
           <div class="field"><label for="gv">දළ වටිනාකම <small>(අවශ්‍ය නම්)</small></label><div class="moneybox"><span>රු.</span><input id="gv" name="value" inputmode="decimal" placeholder="0"></div></div>
         </div>
+        ${isAdmin() ? html`<div class="field"><label for="c">මුදල් එකතු කළේ කවුද?</label><select id="c" name="collectorId">${iCollect() ? '' : html`<option value="">— තෝරන්න —</option>`}${collectors().map(u => html`<option value="${u.id}" ${u.id === me().id ? 'selected' : ''}>${u.name}</option>`)}</select></div>` : ''}
         <details class="more"><summary>දිනය / සටහනක් එක් කරන්න</summary>
           <div class="field"><label for="d">දිනය</label><input id="d" type="date" name="date" value="${today()}" max="${today()}"></div>
-          ${isAdmin() ? html`<div class="field"><label for="c">මුදල් එකතු කළේ</label><select id="c" name="collectorId">${activeUsers().map(u => html`<option value="${u.id}" ${u.id === me().id ? 'selected' : ''}>${u.name}</option>`)}</select></div>` : ''}
           <div class="field"><label for="n">සටහන</label><input id="n" name="note" autocomplete="off"></div>
         </details>
         <p class="err big" data-err hidden></p>
@@ -89,10 +89,12 @@ function amountStep(ev, m) {
         const goods = kind === 'goods' ? f.elements.goods.value.trim() : '';
         if (kind === 'goods' ? !goods : !(amount > 0)) return err(kind === 'goods' ? 'දුන් භාණ්ඩය ලියන්න.' : 'මුදල ඇතුළත් කරන්න.');
         if (!(amount >= 0)) return err('වටිනාකම ඉලක්කම් වලින් ලියන්න.');
+        const collectorId = isAdmin() ? f.elements.collectorId.value : me().id;
+        if (!collectorId) return err(collectors().length ? 'මුදල් එකතු කළේ කවුදැයි තෝරන්න.' : 'පළමුව “තවත් → කමිටුව” තුළ මුදල් එකතු කරන අයෙක් එක් කරන්න.');
         busy = true;
         const id = await put('donations', uid(), {
           eventId: ev.id, memberId: m.id, kind, amount: kind === 'goods' && !amount ? '' : amount, goods,
-          collectorId: f.elements.collectorId?.value || me().id,
+          collectorId,
           date: f.elements.date.value || today(), note: f.elements.note.value.trim(),
         });
         navigator.vibrate?.(40);

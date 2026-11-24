@@ -9,7 +9,7 @@
 
 | කොටස | තැන | වියදම |
 |---|---|---|
-| App (PWA, build නැත, libraries නැත) | `app/` → GitHub Pages | 0 |
+| App (PWA, build නැත, libraries නැත) | `app/` → Vercel (`app/vercel.json`) | 0 |
 | Backend (Google Apps Script) | `backend/Code.gs` | 0 |
 | දත්ත | සංවිධානයේ Google Sheet එක | 0 |
 | WhatsApp | `wa.me` links + දුරකථනයේ share | 0 |

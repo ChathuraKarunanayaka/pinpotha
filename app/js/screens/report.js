@@ -1,5 +1,5 @@
 // Monthly PDF: first every name, village and amount is checked (and fixed here), then the PDF is made.
-import { S, me, byId, put, remove, isAdmin, userName, activeUsers } from '../store.js';
+import { S, me, byId, put, remove, isAdmin, userName, collectors } from '../store.js';
 import { search } from '../search.js';
 import { html, rs } from '../util.js';
 import { eventStats, parcelTotals, plannedParcels, reportRows, reviewIssues, rowSignature } from '../calc.js';
@@ -96,7 +96,7 @@ function editRow(r, canEdit, ev) {
         { key: 'kind', label: 'වර්ගය', type: 'choice', required: true, options: [['cash', 'අතට මුදල්'], ['bank', 'බැංකුවට'], ['goods', 'ද්‍රව්‍ය']] },
         { key: 'amount', label: 'මුදල', type: 'money', required: true, when: v => !goods(v) },
         { key: 'goods', label: 'ද්‍රව්‍යය', required: true, when: goods },
-        ...(isAdmin() ? [{ key: 'collectorId', label: 'එකතු කළ අය', type: 'select', required: true, options: activeUsers().some(u => u.id === d.collectorId) ? activeUsers().map(u => [u.id, u.name]) : [...activeUsers().map(u => [u.id, u.name]), [d.collectorId, userName(d.collectorId)]] }] : []),
+        ...(isAdmin() ? [{ key: 'collectorId', label: 'එකතු කළ අය', type: 'select', required: true, options: [...collectors().map(u => [u.id, u.name]), ...(collectors().some(u => u.id === d.collectorId) ? [] : [[d.collectorId, userName(d.collectorId)]])] }] : []),
       ] : []),
     ],
     onSave: async v => {

@@ -1,12 +1,12 @@
 // Cash in hand, expenses and pledges.
-import { S, all, me, treasurerId, byId, put, remove, isAdmin, memberName, userName, activeUsers } from '../store.js';
+import { S, all, me, byId, put, remove, isAdmin, canManage, collectors, iCollect, memberName, userName } from '../store.js';
 import { html, rs, fmtDate } from '../util.js';
-import { holdings, fundBalance, FUNDS, BANK, pledgeStatus, eventStats } from '../calc.js';
+import { holdings, fundBalance, FUNDS, BANK, POOL, pledgeStatus, eventStats } from '../calc.js';
 import { icon, on, toast, formSheet, empty, stat, confirmBox, dateField } from '../ui.js';
 import { activeEvent, eventBar, wireEventBar } from './home.js';
 import { render } from '../main.js';
 
-const holders = () => [...activeUsers().map(u => [u.id, u.name]), [BANK, 'බැංකු ගිණුම']];
+const holders = cur => [...collectors().map(u => [u.id, u.name]), [POOL, 'පොදු අරමුදල'], [BANK, 'බැංකු ගිණුම'], ...(cur && cur !== POOL && cur !== BANK && !collectors().some(u => u.id === cur) ? [[cur, userName(cur)]] : [])];
 const delWithUndo = async (table, r, what) => {
   if (!(await confirmBox('මකන්නද?', what, { ok: 'මකන්න', danger: true }))) return false;
   await remove(table, r.id);
@@ -17,14 +17,13 @@ const delWithUndo = async (table, r, what) => {
 /* ---------------- cash in hand: everybody sees everybody ---------------- */
 /** Who holds how much. Shared by the home page and the cash page. */
 export function cashList(h) {
-  const t = treasurerId();
-  const rows = Object.entries(h).filter(([id, v]) => v !== 0 || (id !== BANK && activeUsers().some(u => u.id === id)))
-    .sort((x, y) => (x[0] === BANK) - (y[0] === BANK) || (y[0] === t) - (x[0] === t) || y[1] - x[1]);
+  const last = id => (id === BANK ? 2 : id === POOL ? 1 : 0);
+  const rows = Object.entries(h).filter(([id, v]) => v !== 0 || id === POOL || collectors().some(u => u.id === id)).sort((x, y) => last(x[0]) - last(y[0]) || y[1] - x[1]);
   const total = rows.reduce((s, [, v]) => s + Math.round(v * 100), 0) / 100;
-  return html`<div class="list card0">${rows.map(([id, v]) => html`<div class="row ${id === me().id ? 'mine-row' : ''}">${icon(id === BANK ? 'bank' : 'people', 'lead-i')}<span class="grow"><b>${userName(id)}${id === me().id ? ' (ඔබ)' : ''}</b>${id === t ? html`<small>භාණ්ඩාගාරික</small>` : ''}${v < 0 ? html`<small>තමන් අතින් වියදම් කළ මුදල</small>` : ''}</span><strong class="${v < 0 ? 'neg' : ''}">${rs(v)}</strong></div>`)}<div class="row total"><span class="grow"><b>එකතුව</b></span><strong>${rs(total)}</strong></div></div>`;
+  return html`<div class="list card0">${rows.map(([id, v]) => html`<div class="row ${id === me().id ? 'mine-row' : ''}">${icon(id === BANK ? 'bank' : id === POOL ? 'lotus' : 'people', 'lead-i')}<span class="grow"><b>${userName(id)}${id === me().id ? ' (ඔබ)' : ''}</b>${id === POOL ? html`<small>${v < 0 ? 'මේ පින්කමේ එකතුවෙන් පියවේ' : 'පෙර පින්කම්වල ඉතිරිය'}</small>` : ''}${v < 0 && id !== POOL && id !== BANK ? html`<small>තමන් අතින් වියදම් කළ මුදල</small>` : ''}</span><strong class="${v < 0 ? 'neg' : ''}">${rs(v)}</strong></div>`)}<div class="row total"><span class="grow"><b>එකතුව</b></span><strong>${rs(total)}</strong></div></div>`;
 }
 export function cash() {
-  const h = holdings(S.db, S.users.map(u => u.id), treasurerId());
+  const h = holdings(S.db, S.users.map(u => u.id));
   const total = Object.values(h).reduce((s, v) => s + Math.round(v * 100), 0);
   const funds = Object.keys(FUNDS).map(f => [f, fundBalance(S.db, f)]);
   const ok = total === Math.round(funds.reduce((s, [, v]) => s + v, 0) * 100);
@@ -32,7 +31,7 @@ export function cash() {
     title: 'අත ඇති මුදල්', back: 'more',
     body: html`
       ${cashList(h)}
-      <p class="sub">එකතු කළ මුදලින් වියදම් අඩු කර ඉබේම ගණනය වේ. පින්කමේ ගිණුම් වැසූ විට ඉතිරිය භාණ්ඩාගාරික${treasurerId() ? ` (${userName(treasurerId())})` : ''} ළඟ ඇති ලෙස පෙනේ.</p>
+      <p class="sub">එකතු කළ මුදලින් වියදම් අඩු කර ඉබේම ගණනය වේ. පින්කමේ ගිණුම් වැසූ විට ඉතිරිය “පොදු අරමුදල” ලෙස පෙනේ.</p>
       <h2 class="sec">අරමුදල්</h2>
       <div class="stats">${funds.map(([f, v]) => stat(FUNDS[f], v, 'bal'))}</div>
       <p class="banner ${ok ? 'good' : 'bad'}">${icon(ok ? 'check' : 'alert')}<span>${ok ? 'අත ඇති මුදල් සහ අරමුදල් ගිණුම් හරියටම ගැළපේ.' : 'ගිණුම් ගැළපෙන්නේ නැහැ. ඉතිහාසය පරීක්ෂා කරන්න.'}</span></p>
@@ -43,7 +42,7 @@ export function cash() {
       on(el, 'click', '[data-x]', b => { const [t, id] = b.dataset.x.split(':'); const x = byId(t, id); delWithUndo(t, x, rs(x.amount)); });
       on(el, 'click', '[data-opening]', () => formSheet({
         title: 'මුල් ඉතිරිය', intro: 'App එක පටන් ගන්නා විට පොතේ තිබූ මුදල මෙහි එක් වරක් ඇතුළත් කරන්න.',
-        fields: [{ key: 'fund', label: 'අරමුදල', type: 'choice', required: true, options: Object.entries(FUNDS), value: 'poya' }, { key: 'holder', label: 'මුදල් තිබෙන්නේ කොහේද?', type: 'choice', required: true, options: [[treasurerId(), `අතේ (${userName(treasurerId())})`], [BANK, 'බැංකුවේ']], value: treasurerId() }, { key: 'amount', label: 'මුදල', type: 'money', required: true }, dateField(), { key: 'note', label: 'සටහන' }],
+        fields: [{ key: 'fund', label: 'අරමුදල', type: 'choice', required: true, options: Object.entries(FUNDS), value: 'poya' }, { key: 'holder', label: 'මුදල් තිබෙන්නේ කොහේද?', type: 'choice', required: true, options: [[POOL, 'අතේ (පොදු අරමුදල)'], [BANK, 'බැංකුවේ']], value: POOL }, { key: 'amount', label: 'මුදල', type: 'money', required: true }, dateField(), { key: 'note', label: 'සටහන' }],
         onSave: async v => { await put('openings', null, v); toast('සුරැකුණා'); },
       }));
       on(el, 'click', '[data-transfer]', () => formSheet({
@@ -67,7 +66,7 @@ export function expenseForm(ev, x = {}, preset = {}) {
       { key: 'amount', label: 'මුදල', type: 'money', required: true },
       { key: 'category', label: 'වර්ගය', type: 'choice', options: CATS.map(c => [c, c]), value: ev.type === 'poya' ? CATS[0] : 'වෙනත්' },
       ...(tasks.length ? [{ key: 'taskId', label: 'අදාළ කාර්යය', type: 'select', options: tasks.map(t => [t.id, t.title]) }] : []),
-      { key: 'paidBy', label: 'මුදල් ගෙව්වේ කාගේ අතින්ද?', type: 'select', required: true, options: holders(), value: treasurerId() || me().id },
+      { key: 'paidBy', label: 'මුදල් ගෙව්වේ කාගේ අතින්ද?', type: 'select', required: true, options: holders(x.paidBy), value: iCollect() ? me().id : POOL },
       dateField(),
       { key: 'shop', label: 'කඩය', list: all('expenses').map(e => e.shop) }, { key: 'billNo', label: 'බිල් අංකය' }, { key: 'note', label: 'සටහන' },
     ],
@@ -80,13 +79,13 @@ export function expenses() {
   if (!ev) return { title: 'වියදම්', back: 'more', body: empty('bill', 'තවම පින්කමක් නැහැ.') };
   const list = all('expenses').filter(x => x.eventId === ev.id).sort((a, b) => b.date.localeCompare(a.date));
   const st = eventStats(S.db, ev.id);
-  const can = isAdmin() && ev.status !== 'closed';
+  const can = canManage() && ev.status !== 'closed';
   return {
     title: 'වියදම්', back: 'more',
     body: html`${eventBar(ev)}<div class="stats">${stat('එකතුව', st.total, 'in')}${stat('වියදම', st.spent, 'out')}</div>
       ${can ? html`<button type="button" class="btn primary huge" data-add>${icon('plus')} වියදමක් සටහන් කරන්න</button>` : ''}
       ${list.length ? html`<div class="list card0">${list.map(x => html`<button type="button" class="row" data-x="${x.id}" ${can ? '' : 'disabled'}>${icon('bill', 'lead-i')}<span class="grow"><b>${x.title}</b><small>${[x.category, fmtDate(x.date), userName(x.paidBy), x.shop, x.billNo && `බිල් ${x.billNo}`].filter(Boolean).join(' · ')}</small></span><strong>${rs(x.amount)}</strong></button>`)}</div>` : empty('bill', 'තවම වියදම් සටහන් කර නැහැ.')}
-      ${!isAdmin() ? html`<p class="sub center">වියදම් සටහන් කරන්නේ ප්‍රධාන අයයි.</p>` : ''}`,
+      ${!canManage() ? html`<p class="sub center">වියදම් සටහන් කරන්නේ coordinator හෝ ප්‍රධාන පාලක.</p>` : ''}`,
     mount(el) {
       wireEventBar(el, render);
       on(el, 'click', '[data-add]', () => expenseForm(ev));

@@ -1,4 +1,4 @@
-import { S, all, me, treasurerId, isAdmin, isDemo, byId, put, setting, memberName, userName, dismissRejected } from '../store.js';
+import { S, all, me, isAdmin, canManage, isDemo, byId, put, setting, memberName, userName, dismissRejected } from '../store.js';
 import { html, raw, rs, today, daysTo, inDays, fmtDateLong } from '../util.js';
 import { currentEvent, eventStats, fundLedger, holdings, pledgeStatus } from '../calc.js';
 import { nextPoya, poyaId } from '../poya.js';
@@ -43,7 +43,7 @@ export function home() {
   const missing = np && !all('events').some(e => e.date === np[0] && e.type === 'poya') ? np : null;
   const st = ev && eventStats(S.db, ev.id);
   const row = ev && fundLedger(S.db, ev.fund).find(r => r.event.id === ev.id);
-  const h = holdings(S.db, S.users.map(u => u.id), treasurerId());
+  const h = holdings(S.db, S.users.map(u => u.id));
   const d = ev ? daysTo(ev.date) : null;
   const remindFrom = Number(setting('remindDays', '4'));
   const todo = [];
@@ -57,10 +57,10 @@ export function home() {
   if (thanks) todo.push(['promise', '', 'ස්තුති පණිවිඩ යවන්න', `${thanks}ක් ඉතිරියි`, 'go:queue?kind=thanks']);
   const due = ev ? pledgeStatus(S.db, ev.id).filter(p => p.due > 0) : [];
   if (due.length) todo.push(['gift', '', 'පොරොන්දු මුදල් ලැබීමට ඇත', `${due.length} දෙනෙක් · ${rs(due.reduce((s, p) => s + p.due, 0))}`, 'go:pledges']);
-  const cand = isAdmin() ? all('families').filter(f => f.status === 'candidate').length : 0;
+  const cand = canManage() ? all('families').filter(f => f.status === 'candidate').length : 0;
   if (cand) todo.push(['house', '', 'අනුමත කිරීමට පවුල්', `${cand}ක්`, 'go:families']);
 
-  const setupNeeded = isAdmin() && !all('members').length;
+  const setupNeeded = isAdmin() && (!all('members').length || S.users.length < 2);
   return {
     title: '',
     body: html`
@@ -74,7 +74,7 @@ export function home() {
         ${missing ? html`<button type="button" class="btn ${ev ? 'ghost-light' : 'gold huge'}" data-addpoya>${isAdmin() ? `${missing[1]} එක් කරන්න` : `${missing[1]} තවම එක් කර නැත`}</button>` : ''}
       </section>
 
-      ${setupNeeded ? html`<section class="card note"><h2>පටන් ගන්න පියවර 3ක්</h2><ol class="steps"><li><a href="#/users">මුදල් එකතු කරන අය එක් කරන්න</a></li><li><a href="#/members">සාමාජිකයන් එක් කරන්න</a> (ලැයිස්තුවක් එකවර දැමිය හැක)</li><li><a href="#/cash">පොතේ දැනට ඉතිරි මුදල ඇතුළත් කරන්න</a></li></ol></section>` : ''}
+      ${setupNeeded ? html`<section class="card note"><h2>පටන් ගන්න පියවර 3ක්</h2><ol class="steps"><li><a href="#/users">මුදල් එකතු කරන අයට ආරාධනා යවන්න</a></li><li><a href="#/members">සාමාජිකයන් එක් කරන්න</a> (ලැයිස්තුවක් එකවර දැමිය හැක)</li><li><a href="#/cash">පොතේ දැනට ඉතිරි මුදල ඇතුළත් කරන්න</a></li></ol></section>` : ''}
 
       ${todo.length ? html`<section><h2 class="sec">කළ යුතු දේ</h2><div class="list card0">${todo.map(([ic, cls, t, s, act]) => html`<button type="button" class="row ${cls}" data-todo="${act}">${icon(ic, 'lead-i')}<span class="grow"><b>${t}</b><small>${s}</small></span>${icon('next')}</button>`)}</div></section>` : ''}
 
@@ -94,7 +94,7 @@ export function home() {
     mount(el) {
       wireEventBar(el, render);
       on(el, 'click', '[data-addpoya]', async () => {
-        if (!isAdmin()) return toast('ප්‍රධාන අයට මෙය එක් කරන ලෙස දන්වන්න.');
+        if (!isAdmin()) return toast('ප්‍රධාන පාලකට මෙය එක් කරන ලෙස දන්වන්න.');
         await addPoya(missing);
         chooseEvent(poyaId(missing[0]));
         toast(`${missing[1]} එක් කළා`);
