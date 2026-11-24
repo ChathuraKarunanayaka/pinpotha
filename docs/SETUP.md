@@ -29,20 +29,15 @@
 
 ## කොටස 3 — App එකේ ලිපිනය (Vercel)
 
-1. [vercel.com/signup](https://vercel.com/signup) → **Hobby** → **Continue with GitHub**.
-2. **Add New → Project** → `pinpotha` → **Import**.
-3. **Project Name**: ඔබ කැමති නම (උදා: `danata-pin-aththo`). ලිපිනය වන්නේ මෙයයි.
-4. **Root Directory** → Edit → `app` තෝරන්න. **Framework Preset**: Other. වෙන කිසිවක් වෙනස් නොකරන්න.
-5. **Deploy** → ලැබෙන `https://….vercel.app` ලිපිනය සටහන් කරගන්න.
-6. Project → **Settings → Deployment Protection**: Production ලිපිනයට login එකක් ඉල්ලන්නේ නැති බව බලන්න.
+මෙය දැනටමත් කර ඇත. App එකේ ලිපිනය:
 
-එතැන් සිට GitHub එකේ `main` වෙනස් වූ විට Vercel ඉබේම update වේ. කේතයේ සාමාජිකයන්ගේ නම්, මුදල්, PIN හෝ Sheet ලිපිනය කිසිවක් **නැත**.
+**https://danata-pin-aththo.vercel.app/**
 
-පැරණි ලිපිනය: https://chathurakarunanayaka.github.io/pinpotha/
+GitHub එකේ `main` වෙනස් වූ විට Vercel ඉබේම update වේ. කේතයේ සාමාජිකයන්ගේ නම්, මුදල්, PIN හෝ Sheet ලිපිනය කිසිවක් **නැත**.
 
 ## කොටස 4 — ඔබ ඇතුළු වී අනිත් අයට ආරාධනා කිරීම
 
-1. Sheet එකේ **පින් පොත → 2. මගේ (ප්‍රධාන පාලකගේ) link එක** → Web app URL එක (`…/exec`) සහ app ලිපිනය (`https://….vercel.app`) දමන්න.
+1. Sheet එකේ **පින් පොත → 2. මගේ (ප්‍රධාන පාලකගේ) link එක** → Web app URL එක (`…/exec`) දමන්න. App ලිපිනය අසන විට හිස්ව තබා OK ඔබන්න.
 2. ලැබෙන link එක **ඔබේ දුරකථනයෙන්** විවෘත කර, නම තෝරා, PIN එක දමන්න. මෙය අන් කාටවත් යවන්න එපා.
 3. App එකේ **තවත් → කමිටුව → අයෙක්ට ආරාධනා කරන්න** → නම, WhatsApp අංකය, භූමිකාව → **ආරාධනා link එක සාදන්න**.
 4. **WhatsApp කරන්න** ඔබා ඒ අයට පමණක් යවන්න. Group එකට දමන්න එපා.

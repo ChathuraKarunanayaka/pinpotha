@@ -31,7 +31,7 @@ const FUNDS = { poya: 'මාසික පොහොය අරමුදල', annu
 const MONEY_TABLES = ['events', 'members', 'donations', 'expenses', 'openings', 'transfers', 'pledges'];
 const MAX_OPS = 400, MAX_TEXT = 2000, MAX_AMOUNT = 100000000;
 const TOKEN_DAYS = 365, MAX_PIN_TRIES = 5, INVITE_DAYS = 7;
-const APP_URL = 'https://chathurakarunanayaka.github.io/pinpotha/';
+const APP_URL = 'https://danata-pin-aththo.vercel.app/';
 
 /* ------------------------------------------------------------------ HTTP */
 

@@ -21,9 +21,9 @@ const link = h => /readonly>([^<]*)</.exec(h)?.[1];
 test('owner link: default address, a new address that is remembered, and bad input', () => {
   const be = createBackend();
   be.setup('පාලක', '9182');
-  assert.equal(link(menu(be, [EXEC, '']).html), `https://chathurakarunanayaka.github.io/pinpotha/#setup=AKfy-abc_123.${be.key()}`);
-  assert.equal(link(menu(be, [EXEC, 'https://danata-pin-aththo.vercel.app']).html), `https://danata-pin-aththo.vercel.app/#setup=AKfy-abc_123.${be.key()}`);
   assert.equal(link(menu(be, [EXEC, '']).html), `https://danata-pin-aththo.vercel.app/#setup=AKfy-abc_123.${be.key()}`);
+  assert.equal(link(menu(be, [EXEC, 'https://example-new.vercel.app']).html), `https://example-new.vercel.app/#setup=AKfy-abc_123.${be.key()}`);
+  assert.equal(link(menu(be, [EXEC, '']).html), `https://example-new.vercel.app/#setup=AKfy-abc_123.${be.key()}`);
   for (const bad of ['http://x.com', 'javascript:alert(1)', 'danata']) { const s = menu(be, [EXEC, bad]); assert.equal(s.html, ''); assert.equal(s.alerts.length, 1); }
   assert.equal(menu(be, ['https://example.com', '']).alerts.length, 1);
   assert.equal(menu(be, [EXEC, null]).html, '');
